@@ -3,15 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --background: #f8fafc;
+  --background: #f1f5f9;
   --foreground: #0f172a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #090d16;
-    --foreground: #f1f5f9;
-  }
+.dark {
+  --background: #090d16;
+  --foreground: #f1f5f9;
 }
 
 body {
@@ -22,7 +20,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar for editor & panels */
+/* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -31,69 +29,115 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.4);
+  background: rgba(148, 163, 184, 0.35);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 116, 139, 0.6);
 }
 
-/* Word-like document page styling */
-.word-page {
-  background: #ffffff;
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.06);
-  min-height: 1056px; /* Standard US Letter / A4 aspect */
-  width: 816px;
-  padding: 72px 80px;
+/* Crisp A4 Paper Styling with almost sharp corners */
+.word-a4-page {
+  background-color: #ffffff;
+  color: #1e293b;
+  width: 100%;
+  max-width: 816px; /* Standard A4 / US Letter width at 96 DPI */
+  min-height: 1056px;
   margin: 0 auto;
+  border-radius: 2px; /* Almost sharp corners as requested */
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 12px 24px -4px rgba(0, 0, 0, 0.06);
+  padding: 72px 80px; /* 1 inch standard academic margins */
   position: relative;
   transition: all 0.2s ease-in-out;
+  outline: none;
 }
 
-.dark .word-page {
-  background: #111827;
-  color: #e2e8f0;
-  box-shadow: 0 4px 24px -2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
+@media (max-width: 768px) {
+  .word-a4-page {
+    padding: 36px 24px;
+    min-height: auto;
+  }
 }
 
-/* AI likelihood underlines */
-.ai-band-machine {
-  background-color: rgba(244, 63, 94, 0.12);
+/* Dark mode sheet option */
+.word-a4-page-dark {
+  background-color: #111827 !important;
+  color: #f1f5f9 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+}
+
+/* AI Highlight bands */
+.ai-flagged-machine {
+  background-color: rgba(244, 63, 94, 0.16);
   border-bottom: 2px solid #f43f5e;
   border-radius: 2px;
 }
 
-.ai-band-uncertain {
-  background-color: rgba(245, 158, 11, 0.12);
+.ai-flagged-uncertain {
+  background-color: rgba(245, 158, 11, 0.16);
   border-bottom: 2px dashed #f59e0b;
   border-radius: 2px;
 }
 
-.ai-band-human {
-  border-bottom: 1.5px dotted #10b981;
+/* Humanised Preview Highlights */
+.humanised-preview-span {
+  background-color: rgba(16, 185, 129, 0.15);
+  border-bottom: 2px solid #10b981;
+  border-radius: 2px;
 }
 
-/* Similarity highlight styles */
-.similarity-mark {
-  border-radius: 3px;
-  padding: 1px 3px;
-  font-weight: 500;
-  position: relative;
+/* Word Document Tables */
+.word-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  border: 1px solid #cbd5e1;
 }
 
-/* Print simulation for reports */
-@media print {
-  body {
-    background: white !important;
-    color: black !important;
-  }
-  .no-print {
-    display: none !important;
-  }
-  .word-page {
-    box-shadow: none !important;
-    margin: 0 !important;
-    width: 100% !important;
-    padding: 0 !important;
-  }
+.word-table td, .word-table th {
+  border: 1px solid #cbd5e1;
+  padding: 8px 12px;
+  font-size: 13px;
+  vertical-align: top;
+}
+
+.dark .word-table, .dark .word-table td, .dark .word-table th {
+  border-color: #334155;
+}
+
+.word-table th {
+  background-color: #f8fafc;
+  font-weight: 600;
+}
+
+.dark .word-table th {
+  background-color: #1e293b;
+}
+
+/* Word Document Figures */
+.word-figure {
+  margin: 1.5rem 0;
+  text-align: center;
+}
+
+.word-figure img {
+  max-width: 100%;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  margin: 0 auto;
+}
+
+.word-figure figcaption {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 6px;
+  font-style: italic;
+}
+
+/* Selection */
+::selection {
+  background: rgba(99, 102, 241, 0.25);
+  color: inherit;
 }

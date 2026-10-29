@@ -10,7 +10,9 @@ import {
   Sparkles,
   UploadCloud,
   Menu,
-  X
+  X,
+  Sun,
+  Moon
 } from "lucide-react";
 import { UsageSummary } from "@edux/schema";
 
@@ -24,6 +26,9 @@ interface NavbarProps {
   onExportClick: () => void;
   onUploadClick: () => void;
   isSaving?: boolean;
+  // Dark mode
+  isDarkMode: boolean;
+  onToggleDarkMode: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -34,6 +39,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onExportClick,
   onUploadClick,
   isSaving = false,
+  isDarkMode,
+  onToggleDarkMode,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -109,8 +116,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         })}
       </nav>
 
-      {/* Right: Export Button, Usage Quota, Mobile Menu Trigger */}
+      {/* Right: Dark Mode Toggle, Export Button, Usage Quota */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Dark Mode Switcher */}
+        <button
+          onClick={onToggleDarkMode}
+          className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+        >
+          {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+        </button>
+
         {usage && (
           <div
             onClick={() => onTabChange("pricing")}
