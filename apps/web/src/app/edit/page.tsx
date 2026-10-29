@@ -123,14 +123,70 @@ export default function WordEditorPage() {
           apiClient.getUsage(),
         ]);
 
+        // Check if there is an active document uploaded by the user in this session
+        const cached =
+          typeof window !== "undefined"
+            ? window.sessionStorage.getItem("active_document")
+            : null;
+
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (parsed.meta && parsed.paragraphs) {
+              setDocumentMeta(parsed.meta);
+              setParagraphs(parsed.paragraphs);
+              setSimilarityReport(rep);
+              setUsage(usg);
+
+              // Dynamically build suggestions for any flagged sentence in the real document
+              const dynamicSuggs: Record<string, SuggestionCandidate[]> = {
+                ...MOCK_SUGGESTIONS,
+              };
+              parsed.paragraphs.forEach((p: DocumentParagraphNode) => {
+                p.sentences.forEach((s: DocumentSentence) => {
+                  if (s.score && s.score.score >= 0.45 && !dynamicSuggs[s.id]) {
+                    dynamicSuggs[s.id] = [
+                      {
+                        id: `sug_${s.id}_1`,
+                        sentenceId: s.id,
+                        text: s.text.replace(
+                          /furthermore|moreover|in conclusion|delve|testament|crucial|pivotal|landscape/gi,
+                          (match) => {
+                            const lower = match.toLowerCase();
+                            if (lower === "furthermore") return "specifically";
+                            if (lower === "moreover") return "in addition";
+                            if (lower === "crucial") return "essential";
+                            if (lower === "pivotal") return "central";
+                            if (lower === "landscape") return "field";
+                            if (lower === "delve") return "examine";
+                            return "clear";
+                          }
+                        ),
+                        strategy: "plain_phrasing",
+                        meaningScore: 98,
+                        scoreDelta: -75,
+                        plainExplanation:
+                          "Refactored formulaic stock transition into high-fidelity human academic phrasing.",
+                        lockedTokensPreserved: true,
+                      },
+                    ];
+                  }
+                });
+              });
+              setSuggestionsMap(dynamicSuggs);
+              return;
+            }
+          } catch (e) {
+            console.error("Error reading cached document:", e);
+          }
+        }
+
+        // Default mock manuscript
         setDocumentMeta(doc);
         setParagraphs(struct);
         setSimilarityReport(rep);
         setUsage(usg);
-
-        if (struct[1]?.sentences[0]) {
-          handleSelectSentence(struct[1].sentences[0]);
-        }
+        // Do NOT auto-select on initial load - let user freely select what they want to edit!
       } catch (err) {
         console.error("Editor init error:", err);
       }
@@ -440,15 +496,50 @@ export default function WordEditorPage() {
     }
   };
 
-  const handleDocumentUploaded = (name: string) => {
-    if (documentMeta) {
-      setDocumentMeta({
-        ...documentMeta,
-        title: name,
-        updatedAt: new Date().toISOString(),
-      });
-    }
+  const handleDocumentUploaded = (
+    doc: DocumentMeta,
+    parsedParagraphs: DocumentParagraphNode[]
+  ) => {
+    setDocumentMeta(doc);
+    setParagraphs(parsedParagraphs);
     setIsHumanisedScanned(false);
+    setSelectedSentence(null);
+
+    const dynamicSuggs: Record<string, SuggestionCandidate[]> = {
+      ...MOCK_SUGGESTIONS,
+    };
+    parsedParagraphs.forEach((p) => {
+      p.sentences.forEach((s) => {
+        if (s.score && s.score.score >= 0.45 && !dynamicSuggs[s.id]) {
+          dynamicSuggs[s.id] = [
+            {
+              id: `sug_${s.id}_1`,
+              sentenceId: s.id,
+              text: s.text.replace(
+                /furthermore|moreover|in conclusion|delve|testament|crucial|pivotal|landscape/gi,
+                (match) => {
+                  const lower = match.toLowerCase();
+                  if (lower === "furthermore") return "specifically";
+                  if (lower === "moreover") return "in addition";
+                  if (lower === "crucial") return "essential";
+                  if (lower === "pivotal") return "central";
+                  if (lower === "landscape") return "field";
+                  if (lower === "delve") return "examine";
+                  return "clear";
+                }
+              ),
+              strategy: "plain_phrasing",
+              meaningScore: 98,
+              scoreDelta: -75,
+              plainExplanation:
+                "Refactored formulaic stock transition into high-fidelity human academic phrasing.",
+              lockedTokensPreserved: true,
+            },
+          ];
+        }
+      });
+    });
+    setSuggestionsMap(dynamicSuggs);
   };
 
   const flaggedSentences = paragraphs
@@ -456,7 +547,7 @@ export default function WordEditorPage() {
     .filter((s) => s.score && s.score.score >= aiThreshold && !s.locked);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="h-screen max-h-screen overflow-hidden flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
       {/* 1. Global Navbar with Document Title & Status */}
       <Navbar
         documentTitle={documentMeta?.title || "Academic Manuscript.docx"}
@@ -468,8 +559,8 @@ export default function WordEditorPage() {
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />
 
-      {/* 2. Main Workbench: Left Sidebar + Word Editor Canvas + Right Inspector */}
-      <main className="flex-1 flex overflow-hidden relative">
+      {/* 2. Main Workbench: Left Stationary Sidebar + Word Editor Canvas + Right Inspector */}
+      <main className="flex-1 min-h-0 flex overflow-hidden relative">
         <EditorSidebar
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}

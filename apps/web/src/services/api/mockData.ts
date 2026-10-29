@@ -205,10 +205,146 @@ export const MOCK_PARAGRAPHS: DocumentParagraphNode[] = [
         }
       }
     ]
+  },
+  {
+    id: "p_05",
+    documentId: "doc_84719a",
+    type: "heading",
+    styleName: "Heading 1",
+    orderNo: 5,
+    sentences: [
+      {
+        id: "s_08",
+        nodeId: "p_05",
+        paragraphIndex: 4,
+        text: "2. Stylometric Variance and Burstiness Across Corpora",
+        charStart: 0,
+        charEnd: 53,
+        locked: false,
+        ignored: false,
+        score: {
+          sentenceId: "s_08",
+          score: 0.04,
+          band: "likely_human",
+          confidence: 0.98,
+          reasons: []
+        }
+      }
+    ]
+  },
+  {
+    id: "p_06",
+    documentId: "doc_84719a",
+    type: "paragraph",
+    styleName: "Body Text",
+    orderNo: 6,
+    sentences: [
+      {
+        id: "s_09",
+        nodeId: "p_06",
+        paragraphIndex: 5,
+        text: "Moreover, it is essential to emphasize that human scholarly authorship exhibits distinct token entropy distributions compared to autoregressive language models.",
+        charStart: 0,
+        charEnd: 161,
+        locked: false,
+        ignored: false,
+        score: {
+          sentenceId: "s_09",
+          score: 0.81,
+          band: "likely_machine",
+          confidence: 0.88,
+          reasons: ["stock_transitions", "generic_phrasing"]
+        }
+      },
+      {
+        id: "s_10",
+        nodeId: "p_06",
+        paragraphIndex: 5,
+        text: "While machine decoders optimize for expected likelihood, human writers introduce unexpected lexical pairings that increase local perplexity spikes.",
+        charStart: 162,
+        charEnd: 312,
+        locked: false,
+        ignored: false,
+        score: {
+          sentenceId: "s_10",
+          score: 0.15,
+          band: "likely_human",
+          confidence: 0.93,
+          reasons: []
+        }
+      }
+    ]
+  },
+  {
+    id: "p_07",
+    documentId: "doc_84719a",
+    type: "paragraph",
+    styleName: "Body Text",
+    orderNo: 7,
+    sentences: [
+      {
+        id: "s_11",
+        nodeId: "p_07",
+        paragraphIndex: 6,
+        text: "In conclusion, preserving the authentic authorial fingerprint requires targeted intervention rather than blanket phrase replacement.",
+        charStart: 0,
+        charEnd: 133,
+        locked: false,
+        ignored: false,
+        score: {
+          sentenceId: "s_11",
+          score: 0.77,
+          band: "likely_machine",
+          confidence: 0.85,
+          reasons: ["stock_transitions"]
+        }
+      },
+      {
+        id: "s_12",
+        nodeId: "p_07",
+        paragraphIndex: 6,
+        text: "Our proposed architecture maintains lossless fidelity by securing OMML equations, tables, and citation markers throughout all editing passes.",
+        charStart: 134,
+        charEnd: 279,
+        locked: false,
+        ignored: false,
+        score: {
+          sentenceId: "s_12",
+          score: 0.06,
+          band: "likely_human",
+          confidence: 0.97,
+          reasons: []
+        }
+      }
+    ]
   }
 ];
 
 export const MOCK_SUGGESTIONS: Record<string, SuggestionCandidate[]> = {
+  s_09: [
+    {
+      id: "sug_09_1",
+      sentenceId: "s_09",
+      text: "Human scholarly prose exhibits notably distinct token entropy patterns when compared to output from autoregressive language models.",
+      strategy: "plain_phrasing",
+      meaningScore: 98,
+      scoreDelta: -74,
+      plainExplanation: "Removed 'Moreover, it is essential to emphasize that' and tightened into direct empirical observation.",
+      lockedTokensPreserved: true
+    }
+  ],
+  s_11: [
+    {
+      id: "sug_11_1",
+      sentenceId: "s_11",
+      text: "Preserving an authentic authorial fingerprint requires targeted cadence adjustments rather than blanket synonym swapping.",
+      strategy: "plain_phrasing",
+      meaningScore: 99,
+      scoreDelta: -71,
+      plainExplanation: "Eliminated the formulaic 'In conclusion' transitional crutch.",
+      lockedTokensPreserved: true
+    }
+  ],
   s_02: [
     {
       id: "sug_02_1",

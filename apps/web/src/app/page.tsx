@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { DocumentMeta, UsageSummary, VoiceProfile } from "@edux/schema";
 import { apiClient } from "../services/api/apiClient";
 import { Navbar } from "../components/navigation/Navbar";
@@ -10,6 +11,7 @@ import { UploadDocxModal } from "../components/editor/UploadDocxModal";
 import { FidelityReportModal } from "../components/editor/FidelityReportModal";
 
 export default function RootDashboardPage() {
+  const router = useRouter();
   const [documentMeta, setDocumentMeta] = useState<DocumentMeta | null>(null);
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
@@ -38,6 +40,28 @@ export default function RootDashboardPage() {
           apiClient.getVoiceProfile(),
           apiClient.getEduProDocuments(),
         ]);
+
+        // Check if user uploaded a document in this session
+        const cached =
+          typeof window !== "undefined"
+            ? window.sessionStorage.getItem("active_document")
+            : null;
+
+        if (cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (parsed.meta) {
+              setDocumentMeta(parsed.meta);
+              setUsage(usg);
+              setVoiceProfile(vp);
+              setDocuments([parsed.meta, ...eduDocs]);
+              return;
+            }
+          } catch (e) {
+            console.error("Error reading cached doc on dashboard:", e);
+          }
+        }
+
         setDocumentMeta(doc);
         setUsage(usg);
         setVoiceProfile(vp);
@@ -50,7 +74,7 @@ export default function RootDashboardPage() {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="h-screen max-h-screen overflow-hidden flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
       {/* 1. Global Minimalist Topbar */}
       <Navbar
         isDarkMode={isDarkMode}
@@ -58,8 +82,8 @@ export default function RootDashboardPage() {
         onUploadClick={() => setIsUploadModalOpen(true)}
       />
 
-      {/* 2. Main App Container with Uncollapsed Sidebar & Dashboard Content */}
-      <main className="flex-1 flex overflow-hidden relative">
+      {/* 2. Main App Container with Stationary Uncollapsed Sidebar & Independent Scroll Dashboard */}
+      <main className="flex-1 min-h-0 flex overflow-hidden relative">
         <EditorSidebar
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -90,9 +114,9 @@ export default function RootDashboardPage() {
       <UploadDocxModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
-        onDocumentLoaded={(name) => {
-          console.log("Document loaded:", name);
+        onDocumentLoaded={(doc, paragraphs) => {
           setIsUploadModalOpen(false);
+          router.push("/edit");
         }}
       />
 

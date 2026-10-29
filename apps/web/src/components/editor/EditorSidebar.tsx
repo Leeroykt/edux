@@ -131,7 +131,7 @@ export const EditorSidebar: React.FC<EditorSidebarProps> = ({
   /* ---------------- COLLAPSED VIEW ---------------- */
   if (isCollapsed) {
     return (
-      <aside className="w-14 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2 select-none z-20 shrink-0">
+      <aside className="w-14 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2 select-none z-20 shrink-0 h-full sticky top-0">
         {onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
@@ -193,7 +193,7 @@ export const EditorSidebar: React.FC<EditorSidebarProps> = ({
 
   /* ---------------- EXPANDED SIDEBAR VIEW ---------------- */
   return (
-    <aside className="w-64 sm:w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-[calc(100vh-4rem)] z-20 shrink-0 select-none shadow-xs">
+    <aside className="w-64 sm:w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-full z-20 shrink-0 select-none shadow-xs sticky top-0">
       {/* 1. Header with Collapse Button */}
       <div className="p-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
