@@ -19,6 +19,7 @@ import { InspectorPanel } from "../../components/editor/InspectorPanel";
 import { LatexEquationModal } from "../../components/editor/LatexEquationModal";
 import { FidelityReportModal } from "../../components/editor/FidelityReportModal";
 import { UploadDocxModal } from "../../components/editor/UploadDocxModal";
+import { DocumentPickerModal } from "../../components/editor/DocumentPickerModal";
 import { InsertImageModal } from "../../components/editor/InsertImageModal";
 import { InsertTableModal } from "../../components/editor/InsertTableModal";
 
@@ -30,6 +31,8 @@ interface HistoryItem {
 
 export default function WordEditorPage() {
   const [documentMeta, setDocumentMeta] = useState<DocumentMeta | null>(null);
+  const [allDocuments, setAllDocuments] = useState<DocumentMeta[]>([]);
+  const [isDocPickerOpen, setIsDocPickerOpen] = useState<boolean>(false);
   const [paragraphs, setParagraphs] = useState<DocumentParagraphNode[]>([]);
   const [selectedSentence, setSelectedSentence] = useState<DocumentSentence | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestionCandidate[]>([]);
@@ -116,12 +119,15 @@ export default function WordEditorPage() {
   useEffect(() => {
     async function init() {
       try {
-        const [doc, struct, rep, usg] = await Promise.all([
+        const [doc, struct, rep, usg, eduDocs] = await Promise.all([
           apiClient.getDocument("doc_84719a"),
           apiClient.getDocumentStructure("doc_84719a"),
           apiClient.getSimilarityReport("doc_84719a"),
           apiClient.getUsage(),
+          apiClient.getEduProDocuments(),
         ]);
+
+        const libraryDocs = [doc, ...eduDocs];
 
         // Check if there is an active document uploaded by the user in this session
         const cached =
@@ -137,6 +143,7 @@ export default function WordEditorPage() {
               setParagraphs(parsed.paragraphs);
               setSimilarityReport(rep);
               setUsage(usg);
+              setAllDocuments([parsed.meta, ...libraryDocs]);
 
               // Dynamically build suggestions for any flagged sentence in the real document
               const dynamicSuggs: Record<string, SuggestionCandidate[]> = {
@@ -186,13 +193,44 @@ export default function WordEditorPage() {
         setParagraphs(struct);
         setSimilarityReport(rep);
         setUsage(usg);
-        // Do NOT auto-select on initial load - let user freely select what they want to edit!
+        setAllDocuments(libraryDocs);
       } catch (err) {
         console.error("Editor init error:", err);
       }
     }
     init();
   }, []);
+
+  // Handle switching document from document picker
+  const handleSelectDocumentFromPicker = async (targetDoc: DocumentMeta) => {
+    setIsSaving(true);
+    try {
+      setSelectedSentence(null);
+      const cached =
+        typeof window !== "undefined"
+          ? window.sessionStorage.getItem("active_document")
+          : null;
+
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed.meta?.id === targetDoc.id && parsed.paragraphs) {
+            setDocumentMeta(parsed.meta);
+            setParagraphs(parsed.paragraphs);
+            return;
+          }
+        } catch {}
+      }
+
+      const struct = await apiClient.getDocumentStructure(targetDoc.id);
+      setDocumentMeta(targetDoc);
+      setParagraphs(struct);
+    } catch (err) {
+      console.error("Error loading selected document:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Handle sentence selection
   const handleSelectSentence = async (sentence: DocumentSentence) => {
@@ -554,6 +592,7 @@ export default function WordEditorPage() {
         usage={usage}
         onExportClick={() => setIsExportModalOpen(true)}
         onUploadClick={() => setIsUploadModalOpen(true)}
+        onOpenDocPicker={() => setIsDocPickerOpen(true)}
         isSaving={isSaving}
         isDarkMode={isDarkMode}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
@@ -598,6 +637,7 @@ export default function WordEditorPage() {
             onToggleLock={handleToggleLock}
             onOpenEquationModal={() => setIsEquationModalOpen(true)}
             onOpenUploadModal={() => setIsUploadModalOpen(true)}
+            onOpenDocPicker={() => setIsDocPickerOpen(true)}
             onOpenInsertImage={() => setIsInsertImageModalOpen(true)}
             onOpenInsertTable={() => setIsInsertTableModalOpen(true)}
             onOpenReport={() => {}}
@@ -677,6 +717,15 @@ export default function WordEditorPage() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         documentTitle={documentMeta?.title || "Academic Manuscript.docx"}
+      />
+
+      <DocumentPickerModal
+        isOpen={isDocPickerOpen}
+        onClose={() => setIsDocPickerOpen(false)}
+        documents={allDocuments}
+        currentDocId={documentMeta?.id}
+        onSelectDocument={handleSelectDocumentFromPicker}
+        onOpenUploadModal={() => setIsUploadModalOpen(true)}
       />
     </div>
   );

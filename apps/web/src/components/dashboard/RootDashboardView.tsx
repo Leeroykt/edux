@@ -10,9 +10,6 @@ import {
   Clock,
   ArrowRight,
   Search,
-  BookOpen,
-  TrendingUp,
-  Award,
   ChevronRight
 } from "lucide-react";
 import { DocumentMeta, UsageSummary, VoiceProfile } from "@edux/schema";
@@ -160,10 +157,6 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
                 {lastDocument.title}
               </h2>
 
-              <p className="text-xs sm:text-sm text-slate-300 font-serif italic line-clamp-2 bg-white/5 p-3 rounded-xl border border-white/10">
-                “In the contemporary landscape of artificial intelligence, foundational models have revolutionized textual comprehension across academic domains. Our experiments confirm scholarly prose displays higher burstiness...”
-              </p>
-
               {/* Document Key Metas */}
               <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs text-slate-300 font-medium pt-1">
                 <span className="flex items-center gap-1.5 bg-white/10 px-2.5 py-1 rounded-lg">
@@ -212,67 +205,7 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
           </div>
         </div>
 
-        {/* 3. Executive KPI Metrics Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Managed Papers</span>
-              <BookOpen className="w-4 h-4 text-elite-600" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-              {allPapers.length} Manuscripts
-            </div>
-            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> +3 added this week
-            </div>
-          </div>
-
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Avg AI Likelihood</span>
-              <Sparkles className="w-4 h-4 text-amber-500" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              14.2% <span className="text-xs font-normal text-slate-500">Safe</span>
-            </div>
-            <div className="text-[11px] text-slate-500">
-              Below 20% academic threshold
-            </div>
-          </div>
-
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Turnitin Similarity</span>
-              <ShieldCheck className="w-4 h-4 text-blue-500" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
-              12.8% <span className="text-xs font-normal text-slate-500">Avg</span>
-            </div>
-            <div className="text-[11px] text-slate-500">
-              Strict citation separation
-            </div>
-          </div>
-
-          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Monthly Quota Meter</span>
-              <Award className="w-4 h-4 text-elite-600" />
-            </div>
-            <div className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-              {usage.wordsScoredToday.toLocaleString()} <span className="text-xs font-normal text-slate-400">/ 30k</span>
-            </div>
-            <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-              <div
-                className="h-full bg-elite-600 rounded-full"
-                style={{
-                  width: `${Math.round((usage.wordsScoredToday / usage.dailyWordCap) * 100)}%`,
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* 4. "Manage Your Documents" Main Data Workspace */}
+        {/* "Manage Your Documents" Main Data Workspace */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden space-y-0">
           {/* Controls Bar: Search & Stage Filters */}
           <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

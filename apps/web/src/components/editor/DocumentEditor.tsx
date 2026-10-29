@@ -25,7 +25,8 @@ import {
   Copy,
   ChevronDown,
   Check,
-  FileText
+  FileText,
+  FolderOpen
 } from "lucide-react";
 
 export interface InsertedElement {
@@ -44,6 +45,7 @@ interface DocumentEditorProps {
   onToggleLock: (sentenceId: string) => void;
   onOpenEquationModal: () => void;
   onOpenUploadModal: () => void;
+  onOpenDocPicker?: () => void;
   onOpenInsertImage: () => void;
   onOpenInsertTable: () => void;
   onOpenReport: () => void;
@@ -108,6 +110,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onToggleLock,
   onOpenEquationModal,
   onOpenUploadModal,
+  onOpenDocPicker,
   onOpenInsertImage,
   onOpenInsertTable,
   onOpenReport,
@@ -437,6 +440,17 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenDocPicker && (
+              <button
+                onClick={onOpenDocPicker}
+                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-all shadow-2xs"
+                title="Switch Document"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-elite-600" />
+                <span>Documents</span>
+              </button>
+            )}
+
             {humaniseViewMode === "humanised_preview" && flaggedSentences.length > 0 && (
               <button
                 onClick={onApplyAllRewrites}

@@ -18,7 +18,9 @@ import {
   Sun,
   Moon,
   CheckCircle2,
-  Home
+  Home,
+  ChevronDown,
+  FolderOpen
 } from "lucide-react";
 import { UsageSummary } from "@edux/schema";
 
@@ -27,6 +29,7 @@ interface NavbarProps {
   usage?: UsageSummary | null;
   onExportClick?: () => void;
   onUploadClick?: () => void;
+  onOpenDocPicker?: () => void;
   isSaving?: boolean;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
@@ -37,6 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   usage,
   onExportClick,
   onUploadClick,
+  onOpenDocPicker,
   isSaving = false,
   isDarkMode,
   onToggleDarkMode,
@@ -67,11 +71,24 @@ export const Navbar: React.FC<NavbarProps> = ({
           {pathname === "/edit" ? (
             <>
               <div
-                className="max-w-[150px] sm:max-w-xs md:max-w-md truncate text-xs font-bold text-slate-800 dark:text-slate-100"
+                className="max-w-[130px] sm:max-w-xs md:max-w-sm truncate text-xs font-bold text-slate-800 dark:text-slate-100"
                 title={documentTitle}
               >
                 {documentTitle}
               </div>
+
+              {onOpenDocPicker && (
+                <button
+                  onClick={onOpenDocPicker}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-elite-50 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-600 hover:text-elite-600 dark:text-slate-300 text-[11px] font-semibold transition-colors cursor-pointer"
+                  title="Switch or browse documents"
+                >
+                  <FolderOpen className="w-3 h-3 text-elite-600" />
+                  <span className="hidden sm:inline">Docs</span>
+                  <ChevronDown className="w-3 h-3 opacity-60" />
+                </button>
+              )}
+
               <div className="flex items-center gap-1 text-[11px] font-mono">
                 {isSaving ? (
                   <span className="text-amber-500 font-semibold flex items-center gap-1">

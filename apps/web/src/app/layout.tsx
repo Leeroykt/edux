@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   title: "eduX | Lossless Document Engine & Academic Integrity",
   description:
     "Single-purpose web platform for .docx AI detection, Turnitin-style similarity reports, and lossless voice-preserving academic rewrites.",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
