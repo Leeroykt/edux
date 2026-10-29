@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useState } from "react";
 import { Logo } from "../brand/Logo";
 import {
@@ -46,7 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const tabs: { id: NavTab; label: string; icon: React.ReactNode; badge?: string }[] = [
+  const navItems: { id: NavTab; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: "editor", label: "Word Editor", icon: <FileText className="w-4 h-4" /> },
     {
       id: "report",
@@ -60,16 +62,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   ];
 
   return (
-    <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40 transition-colors shadow-2xs">
+    <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40 transition-colors shadow-2xs select-none">
       {/* 1. Left: Brand Logo & Active State */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 sm:gap-4">
         <Logo size="sm" showTagline={false} />
 
         <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block" />
 
         {/* Active Document State Pill */}
         <div className="flex items-center gap-2">
-          <div className="max-w-[180px] sm:max-w-xs truncate text-xs font-bold text-slate-800 dark:text-slate-100" title={documentTitle}>
+          <div className="max-w-[150px] sm:max-w-xs md:max-w-md truncate text-xs font-bold text-slate-800 dark:text-slate-100" title={documentTitle}>
             {documentTitle}
           </div>
           <div className="flex items-center gap-1 text-[11px] font-mono">
@@ -88,33 +90,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* 2. Center: Streamlined View Switcher */}
-      <nav className="hidden lg:flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/50">
-        {tabs.map((t) => {
-          const isActive = currentTab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => onTabChange(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                isActive
-                  ? "bg-white dark:bg-slate-900 text-elite-600 dark:text-elite-400 shadow-sm shadow-slate-900/5 font-bold"
-                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/50"
-              }`}
-            >
-              {t.icon}
-              <span>{t.label}</span>
-              {t.badge && (
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-elite-100 text-elite-700 dark:bg-elite-950 dark:text-elite-300">
-                  {t.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* 3. Right: Quick Actions & Profile */}
+      {/* 2. Right: Quick Actions & Profile (as requested by Dr Dre) */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Quick Action: Upload */}
         <button
@@ -154,7 +130,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-elite-600 to-teal-400 text-white flex items-center justify-center font-bold text-xs ring-2 ring-elite-100 dark:ring-slate-800 shadow-xs group-hover:scale-105 transition-transform">
             AH
           </div>
-          <span className="hidden xl:inline text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-elite-50 dark:bg-elite-950 text-elite-700 dark:text-elite-300 border border-elite-200 dark:border-elite-800">
+          <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-elite-50 dark:bg-elite-950 text-elite-700 dark:text-elite-300 border border-elite-200 dark:border-elite-800">
             Individual
           </span>
         </div>
@@ -171,17 +147,17 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
         <div className="lg:hidden absolute top-16 left-0 right-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-4 shadow-xl z-50 flex flex-col gap-2 animate-in fade-in">
-          {tabs.map((t) => (
+          {navItems.map((t) => (
             <button
               key={t.id}
               onClick={() => {
                 onTabChange(t.id);
                 setMobileMenuOpen(false);
               }}
-              className={`flex items-center justify-between p-3 rounded-xl text-xs font-semibold ${
+              className={`flex items-center justify-between p-2.5 rounded-xl text-xs font-bold ${
                 currentTab === t.id
-                  ? "bg-elite-50 dark:bg-elite-950 text-elite-600 dark:text-elite-400 font-bold"
-                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-50"
+                  ? "bg-elite-600 text-white"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               <div className="flex items-center gap-2">
@@ -189,7 +165,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>{t.label}</span>
               </div>
               {t.badge && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-elite-100 text-elite-700">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-white/20">
                   {t.badge}
                 </span>
               )}

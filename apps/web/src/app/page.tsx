@@ -15,6 +15,7 @@ import {
 import { apiClient } from "../services/api/apiClient";
 import { MOCK_SUGGESTIONS } from "../services/api/mockData";
 import { Navbar, NavTab } from "../components/navigation/Navbar";
+import { EditorSidebar } from "../components/editor/EditorSidebar";
 import { DocumentEditor, InsertedElement } from "../components/editor/DocumentEditor";
 import { InspectorPanel } from "../components/editor/InspectorPanel";
 import { LatexEquationModal } from "../components/editor/LatexEquationModal";
@@ -50,6 +51,9 @@ export default function EduxApplication() {
   // Dark Mode & Paper Canvas Mode
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [paperTheme, setPaperTheme] = useState<"white" | "dark">("white");
+  const [fontFamily, setFontFamily] = useState<string>("Times New Roman");
+  const [fontSize, setFontSize] = useState<string>("3");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Humaniser Flow & Modes
   const [isHumanisedScanned, setIsHumanisedScanned] = useState<boolean>(true);
@@ -60,6 +64,17 @@ export default function EduxApplication() {
 
   // Inserted Elements (Images & Tables)
   const [insertedElements, setInsertedElements] = useState<InsertedElement[]>([
+    {
+      id: "elem_img_1",
+      type: "image",
+      afterParagraphIndex: 1,
+      data: {
+        url: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80",
+        caption: "Figure 1: Benchmark comparative performance across sequence lengths.",
+        align: "center",
+        widthPercent: 75,
+      },
+    },
     {
       id: "elem_table_1",
       type: "table",
@@ -119,36 +134,40 @@ export default function EduxApplication() {
     init();
   }, []);
 
-  // Trigger Humanise Document flow
-  const handleTriggerHumanise = () => {
-    setIsHumanising(true);
-    setTimeout(() => {
-      setIsHumanising(false);
-      setIsHumanisedScanned(true);
-      setHumaniseViewMode("original_flags");
-    }, 1000);
-  };
-
-  // Sentence Selection
+  // Handle sentence selection
   const handleSelectSentence = async (sentence: DocumentSentence) => {
     setSelectedSentence(sentence);
-    setIsInspectorOpen(true);
     setIsLoadingSuggestions(true);
     try {
       const candidates = await apiClient.getSentenceSuggestions(sentence.id);
       setSuggestions(candidates);
-      setSuggestionsMap((prev) => ({ ...prev, [sentence.id]: candidates }));
-    } catch (e) {
-      console.error("Failed to load suggestions:", e);
+    } catch (err) {
+      console.error("Error fetching suggestions:", err);
     } finally {
       setIsLoadingSuggestions(false);
     }
   };
 
-  // Apply one single rewrite
-  const handleApplyRewrite = async (candidate: SuggestionCandidate) => {
+  // Humanise Document Scan Simulation
+  const handleTriggerHumanise = async () => {
+    setIsHumanising(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      setIsHumanisedScanned(true);
+      setHumaniseViewMode("original_flags");
+    } finally {
+      setIsHumanising(false);
+    }
+  };
+
+  // Formatting execCommand
+  const handleExecCommand = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+  };
+
+  // Apply Single Rewrite
+  const handleApplyRewrite = (candidate: SuggestionCandidate) => {
     if (!selectedSentence) return;
-    setIsSaving(true);
 
     setUndoStack((prev) => [
       {
@@ -160,91 +179,72 @@ export default function EduxApplication() {
     ]);
     setRedoStack([]);
 
-    const humanScore = {
+    const updatedText = candidate.text;
+    const updatedScore = {
       sentenceId: selectedSentence.id,
-      score: 0.12,
+      score: 0.08,
       band: "likely_human" as const,
-      confidence: 0.95,
+      confidence: 0.96,
       reasons: [],
+      modelDetails: {
+        perplexityScore: 185.4,
+        burstinessScore: 0.94,
+      },
     };
 
     setParagraphs((prev) =>
       prev.map((p) => ({
         ...p,
-        sentences: p.sentences.map((s) => {
-          if (s.id === selectedSentence.id) {
-            return {
-              ...s,
-              text: candidate.text,
-              score: humanScore,
-            };
-          }
-          return s;
-        }),
+        sentences: p.sentences.map((s) =>
+          s.id === selectedSentence.id
+            ? { ...s, text: updatedText, score: updatedScore }
+            : s
+        ),
       }))
     );
 
     setSelectedSentence((prev) =>
-      prev ? { ...prev, text: candidate.text, score: humanScore } : null
+      prev ? { ...prev, text: updatedText, score: updatedScore } : null
     );
 
-    if (usage) {
-      setUsage({
-        ...usage,
-        suggestionsUsedToday: usage.suggestionsUsedToday + 1,
-      });
-    }
-
-    try {
-      await apiClient.applySuggestion(selectedSentence.id, {
-        suggestionId: candidate.id,
-        text: candidate.text,
-      });
-    } catch (err) {
-      console.error("Failed to apply remotely:", err);
-    } finally {
-      setIsSaving(false);
-    }
+    setIsSaving(true);
+    setTimeout(() => setIsSaving(false), 600);
   };
 
-  // Apply All Rewrites in 1-Click
+  // Apply All Rewrites
   const handleApplyAllRewrites = () => {
-    setIsSaving(true);
-
-    const changesToPush: HistoryItem[] = [];
-
     setParagraphs((prev) =>
       prev.map((p) => ({
         ...p,
         sentences: p.sentences.map((s) => {
-          const suggestions = suggestionsMap[s.id];
-          if (suggestions && suggestions[0] && s.score && s.score.score >= aiThreshold && !s.locked) {
-            changesToPush.push({
-              sentenceId: s.id,
-              text: s.text,
-              score: s.score,
-            });
-            return {
-              ...s,
-              text: suggestions[0].text,
-              score: {
-                sentenceId: s.id,
-                score: 0.12,
-                band: "likely_human" as const,
-                confidence: 0.95,
-                reasons: [],
-              },
-            };
+          if (s.score && s.score.score >= aiThreshold && !s.locked) {
+            const topCandidate = suggestionsMap[s.id]?.[0];
+            if (topCandidate) {
+              return {
+                ...s,
+                text: topCandidate.text,
+                score: {
+                  sentenceId: s.id,
+                  score: 0.09,
+                  band: "likely_human" as const,
+                  confidence: 0.95,
+                  reasons: [],
+                  modelDetails: {
+                    perplexityScore: 178.2,
+                    burstinessScore: 0.91,
+                  },
+                },
+              };
+            }
           }
           return s;
         }),
       }))
     );
 
-    setUndoStack((prev) => [...changesToPush, ...prev]);
-    setRedoStack([]);
     setHumaniseViewMode("clean");
-    setIsSaving(false);
+    setIsSaving(true);
+    setTimeout(() => setIsSaving(false), 700);
   };
 
   // Handle Undo
@@ -349,7 +349,7 @@ export default function EduxApplication() {
     }
   };
 
-  // Insert Image handler
+  // Insert Image handler (local upload or preset with default styling)
   const handleInsertImage = (imageUrl: string, caption?: string) => {
     setInsertedElements((prev) => [
       ...prev,
@@ -357,9 +357,61 @@ export default function EduxApplication() {
         id: `img_${Date.now()}`,
         type: "image",
         afterParagraphIndex: 1,
-        data: { url: imageUrl, caption },
+        data: {
+          url: imageUrl,
+          caption: caption || "Figure: Uploaded image illustration",
+          align: "center",
+          widthPercent: 75,
+        },
       },
     ]);
+  };
+
+  // Move Element Up (swaps position with previous paragraph)
+  const handleMoveElementUp = (id: string) => {
+    setInsertedElements((prev) =>
+      prev.map((el) => {
+        if (el.id === id && el.afterParagraphIndex > 0) {
+          return { ...el, afterParagraphIndex: el.afterParagraphIndex - 1 };
+        }
+        return el;
+      })
+    );
+  };
+
+  // Move Element Down (swaps position with next paragraph)
+  const handleMoveElementDown = (id: string) => {
+    setInsertedElements((prev) =>
+      prev.map((el) => {
+        if (el.id === id && el.afterParagraphIndex < paragraphs.length - 1) {
+          return { ...el, afterParagraphIndex: el.afterParagraphIndex + 1 };
+        }
+        return el;
+      })
+    );
+  };
+
+  // Update Element data (for crop, caption, align, width)
+  const handleUpdateElement = (id: string, partialData: any) => {
+    setInsertedElements((prev) =>
+      prev.map((el) => {
+        if (el.id === id) {
+          return {
+            ...el,
+            data: {
+              ...el.data,
+              ...partialData,
+            },
+          };
+        }
+        return el;
+      })
+    );
+  };
+
+  // Delete Element
+  const handleDeleteElement = (id: string) => {
+    setInsertedElements((prev) => prev.filter((el) => el.id !== id));
   };
 
   // Insert Table handler
@@ -403,9 +455,13 @@ export default function EduxApplication() {
     setCurrentTab("editor");
   };
 
+  const flaggedSentences = paragraphs
+    .flatMap((p) => p.sentences)
+    .filter((s) => s.score && s.score.score >= aiThreshold && !s.locked);
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
-      {/* Global Navbar */}
+      {/* 1. Global Minimalist Topbar (Logo, Active State, Quick Actions, Profile) */}
       <Navbar
         currentTab={currentTab}
         onTabChange={setCurrentTab}
@@ -418,9 +474,40 @@ export default function EduxApplication() {
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />
 
-      {/* Main App Container */}
+      {/* 2. Main App Container with Left Platform Navigation Sidebar */}
       <main className="flex-1 flex overflow-hidden relative">
-        {/* VIEW 1: Document Humaniser Editor */}
+        {/* Left Platform Sidebar (Always available to navigate: Word Editor, Similarity 16%, My Papers, Edu Pro Board, Plans) */}
+        <EditorSidebar
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          currentTab={currentTab}
+          onTabChange={setCurrentTab}
+          similarityScore={documentMeta?.similarityScore || 16}
+          paperCount={4}
+          onTriggerHumanise={handleTriggerHumanise}
+          isHumanising={isHumanising}
+          humaniseViewMode={humaniseViewMode}
+          onHumaniseViewModeChange={setHumaniseViewMode}
+          onApplyAllRewrites={handleApplyAllRewrites}
+          flaggedCount={flaggedSentences.length}
+          aiThreshold={aiThreshold}
+          onThresholdChange={setAiThreshold}
+          onOpenInsertImage={() => setIsInsertImageModalOpen(true)}
+          onOpenInsertTable={() => setIsInsertTableModalOpen(true)}
+          onOpenEquationModal={() => setIsEquationModalOpen(true)}
+          onExecCommand={handleExecCommand}
+          fontFamily={fontFamily}
+          onFontFamilyChange={setFontFamily}
+          fontSize={fontSize}
+          onFontSizeChange={setFontSize}
+          paperTheme={paperTheme}
+          onTogglePaperTheme={() =>
+            setPaperTheme(paperTheme === "white" ? "dark" : "white")
+          }
+          onOpenUploadModal={() => setIsUploadModalOpen(true)}
+        />
+
+        {/* VIEW 1: Document Humaniser Editor Workspace */}
         {currentTab === "editor" && (
           <div className="flex-1 flex overflow-hidden w-full">
             <DocumentEditor
@@ -450,10 +537,17 @@ export default function EduxApplication() {
               isInspectorOpen={isInspectorOpen}
               onToggleInspector={() => setIsInspectorOpen(!isInspectorOpen)}
               insertedElements={insertedElements}
+              onMoveElementUp={handleMoveElementUp}
+              onMoveElementDown={handleMoveElementDown}
+              onUpdateElement={handleUpdateElement}
+              onDeleteElement={handleDeleteElement}
               paperTheme={paperTheme}
               onTogglePaperTheme={() =>
                 setPaperTheme(paperTheme === "white" ? "dark" : "white")
               }
+              fontFamily={fontFamily}
+              fontSize={fontSize}
+              onExecCommand={handleExecCommand}
               similarityScore={documentMeta?.similarityScore || 16}
               isSaving={isSaving}
               wordCount={documentMeta?.wordCount || 3840}
@@ -475,75 +569,83 @@ export default function EduxApplication() {
 
         {/* VIEW 2: Turnitin-Style Similarity Report */}
         {currentTab === "report" && similarityReport && (
-          <SimilarityReportView
-            report={similarityReport}
-            documentTitle={documentMeta?.title || "Academic Manuscript.docx"}
-            onJumpToEditorSentence={(sid) => {
-              const sentence = paragraphs
-                .flatMap((p) => p.sentences)
-                .find((s) => s.id === sid);
-              if (sentence) handleSelectSentence(sentence);
-              setCurrentTab("editor");
-              setHumaniseViewMode("original_flags");
-            }}
-          />
+          <div className="flex-1 overflow-y-auto">
+            <SimilarityReportView
+              report={similarityReport}
+              documentTitle={documentMeta?.title || "Academic Manuscript.docx"}
+              onJumpToEditorSentence={(sid) => {
+                const sentence = paragraphs
+                  .flatMap((p) => p.sentences)
+                  .find((s) => s.id === sid);
+                if (sentence) handleSelectSentence(sentence);
+                setCurrentTab("editor");
+                setHumaniseViewMode("original_flags");
+              }}
+            />
+          </div>
         )}
 
-        {/* VIEW 3: Individual Workspace */}
+        {/* VIEW 3: Individual Workspace (My Papers) */}
         {currentTab === "individual_dash" && usage && voiceProfile && (
-          <IndividualDashboard
-            documents={documentMeta ? [documentMeta] : []}
-            usage={usage}
-            voiceProfile={voiceProfile}
-            onOpenDocument={() => setCurrentTab("editor")}
-            onUploadSimulate={() => setIsUploadModalOpen(true)}
-            onNavigateToPricing={() => setCurrentTab("pricing")}
-          />
+          <div className="flex-1 overflow-y-auto">
+            <IndividualDashboard
+              documents={documentMeta ? [documentMeta] : []}
+              usage={usage}
+              voiceProfile={voiceProfile}
+              onOpenDocument={() => setCurrentTab("editor")}
+              onUploadSimulate={() => setIsUploadModalOpen(true)}
+              onNavigateToPricing={() => setCurrentTab("pricing")}
+            />
+          </div>
         )}
 
         {/* VIEW 4: Edu Pro Board */}
         {currentTab === "edu_pro_dash" && (
-          <EduProDashboard
-            documents={eduProDocuments}
-            onOpenDocument={() => setCurrentTab("editor")}
-            onUpdateStage={(docId, stage) => {
-              setEduProDocuments((prev) =>
-                prev.map((d) => (d.id === docId ? { ...d, stage } : d))
-              );
-              apiClient.updateDocumentStage(docId, stage);
-            }}
-          />
+          <div className="flex-1 overflow-y-auto">
+            <EduProDashboard
+              documents={eduProDocuments}
+              onOpenDocument={() => setCurrentTab("editor")}
+              onUpdateStage={(docId, stage) => {
+                setEduProDocuments((prev) =>
+                  prev.map((d) => (d.id === docId ? { ...d, stage } : d))
+                );
+                apiClient.updateDocumentStage(docId, stage);
+              }}
+            />
+          </div>
         )}
 
         {/* VIEW 5: Pricing Plans */}
         {currentTab === "pricing" && (
-          <PricingModal
-            currentPlan={currentPlan}
-            onSelectPlan={(plan) => {
-              setCurrentPlan(plan);
-              if (usage) {
-                if (plan === "edu_pro") {
-                  setUsage({
-                    ...usage,
-                    dailyWordCap: 150000,
-                    dailySuggestionCap: 1500,
-                    activePapersCap: 40,
-                  });
-                } else if (plan === "individual") {
-                  setUsage({
-                    ...usage,
-                    dailyWordCap: 30000,
-                    dailySuggestionCap: 300,
-                    activePapersCap: 3,
-                  });
+          <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex items-center justify-center">
+            <PricingModal
+              currentPlan={currentPlan}
+              onSelectPlan={(plan) => {
+                setCurrentPlan(plan);
+                if (usage) {
+                  if (plan === "edu_pro") {
+                    setUsage({
+                      ...usage,
+                      dailyWordCap: 150000,
+                      dailySuggestionCap: 1500,
+                      activePapersCap: 40,
+                    });
+                  } else if (plan === "individual") {
+                    setUsage({
+                      ...usage,
+                      dailyWordCap: 30000,
+                      dailySuggestionCap: 300,
+                      activePapersCap: 3,
+                    });
+                  }
                 }
-              }
-            }}
-          />
+              }}
+            />
+          </div>
         )}
       </main>
 
-      {/* Modals */}
+      {/* Global Modals */}
       <UploadDocxModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
