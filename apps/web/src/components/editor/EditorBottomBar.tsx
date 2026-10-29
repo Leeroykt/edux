@@ -159,9 +159,9 @@ export const EditorBottomBar: React.FC<EditorBottomBarProps> = ({
 
       {/* Right: Word Count, Page Count, Zoom */}
       <div className="flex items-center gap-3 text-slate-500 text-[11px] font-medium">
-        <span>{wordCount.toLocaleString()} words</span>
+        <span>{(wordCount || 0).toLocaleString()} words</span>
         <span>•</span>
-        <span>Page 1 of {pageCount}</span>
+        <span>Page 1 of {pageCount || 1}</span>
 
         <div className="hidden sm:flex items-center gap-1.5 pl-2 border-l border-slate-200 dark:border-slate-800">
           <button
