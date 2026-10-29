@@ -399,14 +399,13 @@ export default function EduxApplication() {
         updatedAt: new Date().toISOString(),
       });
     }
-    // Show the "Ready to Humanise" state right after upload!
     setIsHumanisedScanned(false);
     setCurrentTab("editor");
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
-      {/* Global Navbar with Dark Mode Toggle */}
+      {/* Global Navbar */}
       <Navbar
         currentTab={currentTab}
         onTabChange={setCurrentTab}
@@ -421,7 +420,7 @@ export default function EduxApplication() {
 
       {/* Main App Container */}
       <main className="flex-1 flex overflow-hidden relative">
-        {/* VIEW 1: Document Humaniser Editor (with Word Ribbon, Real-time edit, A4 page) */}
+        {/* VIEW 1: Document Humaniser Editor */}
         {currentTab === "editor" && (
           <div className="flex-1 flex overflow-hidden w-full">
             <DocumentEditor
@@ -435,6 +434,7 @@ export default function EduxApplication() {
               onOpenUploadModal={() => setIsUploadModalOpen(true)}
               onOpenInsertImage={() => setIsInsertImageModalOpen(true)}
               onOpenInsertTable={() => setIsInsertTableModalOpen(true)}
+              onOpenReport={() => setCurrentTab("report")}
               aiThreshold={aiThreshold}
               onThresholdChange={setAiThreshold}
               historyUndoLength={undoStack.length}
@@ -454,6 +454,10 @@ export default function EduxApplication() {
               onTogglePaperTheme={() =>
                 setPaperTheme(paperTheme === "white" ? "dark" : "white")
               }
+              similarityScore={documentMeta?.similarityScore || 16}
+              isSaving={isSaving}
+              wordCount={documentMeta?.wordCount || 3840}
+              pageCount={documentMeta?.pageCount || 12}
             />
 
             <InspectorPanel
