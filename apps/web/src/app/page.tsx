@@ -18,10 +18,17 @@ import { DocumentEditor } from "../components/editor/DocumentEditor";
 import { InspectorPanel } from "../components/editor/InspectorPanel";
 import { LatexEquationModal } from "../components/editor/LatexEquationModal";
 import { FidelityReportModal } from "../components/editor/FidelityReportModal";
+import { UploadDocxModal } from "../components/editor/UploadDocxModal";
 import { SimilarityReportView } from "../components/report/SimilarityReportView";
 import { IndividualDashboard } from "../components/dashboard/IndividualDashboard";
 import { EduProDashboard } from "../components/dashboard/EduProDashboard";
 import { PricingModal } from "../components/pricing/PricingModal";
+
+interface HistoryItem {
+  sentenceId: string;
+  text: string;
+  score?: any;
+}
 
 export default function EduxApplication() {
   const [currentTab, setCurrentTab] = useState<NavTab>("editor");
@@ -36,14 +43,19 @@ export default function EduxApplication() {
   const [eduProDocuments, setEduProDocuments] = useState<DocumentMeta[]>([]);
   const [currentPlan, setCurrentPlan] = useState<PlanType>("individual");
 
-  // Modals & Controls
+  // Modes & View settings: "ai" (default humaniser) | "similarity" (Turnitin check) | "clean"
+  const [activeMode, setActiveMode] = useState<"ai" | "similarity" | "clean">("ai");
+  const [aiThreshold, setAiThreshold] = useState(0.45);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+
+  // Modals
   const [isEquationModalOpen, setIsEquationModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [aiThreshold, setAiThreshold] = useState(0.5);
-  const [activeLayer, setActiveLayer] = useState<"both" | "ai" | "similarity" | "none">("both");
-  const [historyUndoStack, setHistoryUndoStack] = useState<
-    { sentenceId: string; prevText: string; prevScore?: any }[]
-  >([]);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+  // Undo and Redo Stacks
+  const [undoStack, setUndoStack] = useState<HistoryItem[]>([]);
+  const [redoStack, setRedoStack] = useState<HistoryItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
   // Initial Data Load
@@ -66,7 +78,7 @@ export default function EduxApplication() {
         setVoiceProfile(vp);
         setEduProDocuments(eduDocs);
 
-        // Pre-select the second sentence (which has machine signals) for immediate demo
+        // Pre-select sentence s_02 (which has high AI machine likelihood)
         if (struct[1]?.sentences[0]) {
           handleSelectSentence(struct[1].sentences[0]);
         }
@@ -77,9 +89,10 @@ export default function EduxApplication() {
     init();
   }, []);
 
-  // Handle sentence selection & load AI suggestions (M10.8)
+  // Handle sentence selection
   const handleSelectSentence = async (sentence: DocumentSentence) => {
     setSelectedSentence(sentence);
+    setIsInspectorOpen(true);
     setIsLoadingSuggestions(true);
     try {
       const candidates = await apiClient.getSentenceSuggestions(sentence.id);
@@ -91,22 +104,31 @@ export default function EduxApplication() {
     }
   };
 
-  // Handle applying a rewrite (M10.9)
+  // Handle applying a human rewrite
   const handleApplyRewrite = async (candidate: SuggestionCandidate) => {
     if (!selectedSentence) return;
     setIsSaving(true);
 
-    // Save previous state to history undo stack
-    setHistoryUndoStack((prev) => [
+    // Push current state to undo stack, and clear redo stack
+    setUndoStack((prev) => [
       {
         sentenceId: selectedSentence.id,
-        prevText: selectedSentence.text,
-        prevScore: selectedSentence.score,
+        text: selectedSentence.text,
+        score: selectedSentence.score,
       },
       ...prev,
     ]);
+    setRedoStack([]);
 
-    // Update paragraph state locally with new text and improved human score
+    // Update paragraph state locally with new text and humanized score
+    const humanScore = {
+      sentenceId: selectedSentence.id,
+      score: 0.12,
+      band: "likely_human" as const,
+      confidence: 0.95,
+      reasons: [],
+    };
+
     setParagraphs((prev) =>
       prev.map((p) => ({
         ...p,
@@ -115,13 +137,7 @@ export default function EduxApplication() {
             return {
               ...s,
               text: candidate.text,
-              score: {
-                sentenceId: s.id,
-                score: 0.14, // Lowered AI probability
-                band: "likely_human",
-                confidence: 0.94,
-                reasons: [],
-              },
+              score: humanScore,
             };
           }
           return s;
@@ -129,7 +145,12 @@ export default function EduxApplication() {
       }))
     );
 
-    // Increment usage
+    // Update selected sentence
+    setSelectedSentence((prev) =>
+      prev ? { ...prev, text: candidate.text, score: humanScore } : null
+    );
+
+    // Increment usage meter
     if (usage) {
       setUsage({
         ...usage,
@@ -146,40 +167,42 @@ export default function EduxApplication() {
       console.error("Failed to apply remotely:", err);
     } finally {
       setIsSaving(false);
-      // Refresh selected sentence view
-      setSelectedSentence((prev) =>
-        prev
-          ? {
-              ...prev,
-              text: candidate.text,
-              score: {
-                sentenceId: prev.id,
-                score: 0.14,
-                band: "likely_human",
-                confidence: 0.94,
-                reasons: [],
-              },
-            }
-          : null
-      );
     }
   };
 
-  // Handle Undo (M4.13)
+  // Handle Undo
   const handleUndo = () => {
-    if (historyUndoStack.length === 0) return;
-    const [lastAction, ...remaining] = historyUndoStack;
-    setHistoryUndoStack(remaining);
+    if (undoStack.length === 0) return;
+    const [actionToUndo, ...remainingUndo] = undoStack;
 
+    // Find current sentence text to push to redo stack
+    const currentSentence = paragraphs
+      .flatMap((p) => p.sentences)
+      .find((s) => s.id === actionToUndo.sentenceId);
+
+    if (currentSentence) {
+      setRedoStack((prev) => [
+        {
+          sentenceId: currentSentence.id,
+          text: currentSentence.text,
+          score: currentSentence.score,
+        },
+        ...prev,
+      ]);
+    }
+
+    setUndoStack(remainingUndo);
+
+    // Restore previous text
     setParagraphs((prev) =>
       prev.map((p) => ({
         ...p,
         sentences: p.sentences.map((s) => {
-          if (s.id === lastAction.sentenceId) {
+          if (s.id === actionToUndo.sentenceId) {
             return {
               ...s,
-              text: lastAction.prevText,
-              score: lastAction.prevScore,
+              text: actionToUndo.text,
+              score: actionToUndo.score,
             };
           }
           return s;
@@ -187,20 +210,71 @@ export default function EduxApplication() {
       }))
     );
 
-    if (selectedSentence?.id === lastAction.sentenceId) {
+    if (selectedSentence?.id === actionToUndo.sentenceId) {
       setSelectedSentence((prev) =>
         prev
           ? {
               ...prev,
-              text: lastAction.prevText,
-              score: lastAction.prevScore,
+              text: actionToUndo.text,
+              score: actionToUndo.score,
             }
           : null
       );
     }
   };
 
-  // Toggle Lock per sentence (M4.15)
+  // Handle Redo (Right on the side of Undo)
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const [actionToRedo, ...remainingRedo] = redoStack;
+
+    const currentSentence = paragraphs
+      .flatMap((p) => p.sentences)
+      .find((s) => s.id === actionToRedo.sentenceId);
+
+    if (currentSentence) {
+      setUndoStack((prev) => [
+        {
+          sentenceId: currentSentence.id,
+          text: currentSentence.text,
+          score: currentSentence.score,
+        },
+        ...prev,
+      ]);
+    }
+
+    setRedoStack(remainingRedo);
+
+    setParagraphs((prev) =>
+      prev.map((p) => ({
+        ...p,
+        sentences: p.sentences.map((s) => {
+          if (s.id === actionToRedo.sentenceId) {
+            return {
+              ...s,
+              text: actionToRedo.text,
+              score: actionToRedo.score,
+            };
+          }
+          return s;
+        }),
+      }))
+    );
+
+    if (selectedSentence?.id === actionToRedo.sentenceId) {
+      setSelectedSentence((prev) =>
+        prev
+          ? {
+              ...prev,
+              text: actionToRedo.text,
+              score: actionToRedo.score,
+            }
+          : null
+      );
+    }
+  };
+
+  // Toggle Lock
   const handleToggleLock = (sentenceId: string) => {
     setParagraphs((prev) =>
       prev.map((p) => ({
@@ -215,31 +289,37 @@ export default function EduxApplication() {
     }
   };
 
-  // Kanban Stage update (M14.3)
-  const handleUpdateStage = async (docId: string, stage: DocumentStage) => {
-    setEduProDocuments((prev) =>
-      prev.map((d) => (d.id === docId ? { ...d, stage } : d))
-    );
-    await apiClient.updateDocumentStage(docId, stage);
+  // When a new document is uploaded
+  const handleDocumentUploaded = (name: string) => {
+    if (documentMeta) {
+      setDocumentMeta({
+        ...documentMeta,
+        title: name,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    setCurrentTab("editor");
+    setActiveMode("ai");
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-      {/* Global Navigation Header */}
+      {/* Global Navbar */}
       <Navbar
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         documentTitle={documentMeta?.title || "Academic Manuscript.docx"}
         usage={usage}
         onExportClick={() => setIsExportModalOpen(true)}
+        onUploadClick={() => setIsUploadModalOpen(true)}
         isSaving={isSaving}
       />
 
-      {/* Main Tab Views */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* VIEW 1: Document Editor & Review Layer (M12) */}
+      {/* Main Container */}
+      <main className="flex-1 flex overflow-hidden relative">
+        {/* VIEW 1: Document Humaniser Editor (M12) */}
         {currentTab === "editor" && (
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex overflow-hidden w-full">
             <DocumentEditor
               paragraphs={paragraphs}
               selectedSentenceId={selectedSentence?.id || null}
@@ -247,12 +327,19 @@ export default function EduxApplication() {
               onApplyQuickRewrite={(sid, c) => handleApplyRewrite(c)}
               onToggleLock={handleToggleLock}
               onOpenEquationModal={() => setIsEquationModalOpen(true)}
+              onOpenUploadModal={() => setIsUploadModalOpen(true)}
               aiThreshold={aiThreshold}
               onThresholdChange={setAiThreshold}
-              activeLayer={activeLayer}
-              onLayerChange={setActiveLayer}
-              historyUndoLength={historyUndoStack.length}
+              activeMode={activeMode}
+              onModeChange={setActiveMode}
+              historyUndoLength={undoStack.length}
+              historyRedoLength={redoStack.length}
               onUndo={handleUndo}
+              onRedo={handleRedo}
+              overallAiScore={documentMeta?.overallAiScore || 0.38}
+              similarityScore={documentMeta?.similarityScore || 16}
+              isInspectorOpen={isInspectorOpen}
+              onToggleInspector={() => setIsInspectorOpen(!isInspectorOpen)}
             />
 
             <InspectorPanel
@@ -262,11 +349,13 @@ export default function EduxApplication() {
               onApplySuggestion={handleApplyRewrite}
               onToggleLock={handleToggleLock}
               report={similarityReport}
+              isOpen={isInspectorOpen}
+              onCloseMobile={() => setIsInspectorOpen(false)}
             />
           </div>
         )}
 
-        {/* VIEW 2: Turnitin-Style Similarity & Combined Report (M9) */}
+        {/* VIEW 2: Turnitin-Style Similarity Report (M9) */}
         {currentTab === "report" && similarityReport && (
           <SimilarityReportView
             report={similarityReport}
@@ -277,32 +366,38 @@ export default function EduxApplication() {
                 .find((s) => s.id === sid);
               if (sentence) handleSelectSentence(sentence);
               setCurrentTab("editor");
+              setActiveMode("similarity");
             }}
           />
         )}
 
-        {/* VIEW 3: Individual Dashboard (M13) */}
+        {/* VIEW 3: Individual Workspace (M13) */}
         {currentTab === "individual_dash" && usage && voiceProfile && (
           <IndividualDashboard
             documents={documentMeta ? [documentMeta] : []}
             usage={usage}
             voiceProfile={voiceProfile}
             onOpenDocument={() => setCurrentTab("editor")}
-            onUploadSimulate={() => setCurrentTab("editor")}
+            onUploadSimulate={() => setIsUploadModalOpen(true)}
             onNavigateToPricing={() => setCurrentTab("pricing")}
           />
         )}
 
-        {/* VIEW 4: Edu Pro Board & Analytics (M14) */}
+        {/* VIEW 4: Edu Pro Board (M14) */}
         {currentTab === "edu_pro_dash" && (
           <EduProDashboard
             documents={eduProDocuments}
             onOpenDocument={() => setCurrentTab("editor")}
-            onUpdateStage={handleUpdateStage}
+            onUpdateStage={(docId, stage) => {
+              setEduProDocuments((prev) =>
+                prev.map((d) => (d.id === docId ? { ...d, stage } : d))
+              );
+              apiClient.updateDocumentStage(docId, stage);
+            }}
           />
         )}
 
-        {/* VIEW 5: Pricing & Limits (M2) */}
+        {/* VIEW 5: Pricing Plans (M2) */}
         {currentTab === "pricing" && (
           <PricingModal
             currentPlan={currentPlan}
@@ -329,6 +424,13 @@ export default function EduxApplication() {
           />
         )}
       </main>
+
+      {/* Upload .docx Modal */}
+      <UploadDocxModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onDocumentLoaded={handleDocumentUploaded}
+      />
 
       {/* LaTeX Equation Modal (M5) */}
       <LatexEquationModal
