@@ -10,22 +10,29 @@
   },
   "dependencies": {
     "@edux/schema": "workspace:*",
+    "@prisma/client": "^7.10.1",
+    "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
+    "jose": "^6.2.13",
     "katex": "^0.16.21",
     "lucide-react": "^1.16.0",
     "mammoth": "^1.13.0",
     "next": "^15.2.1",
+    "pg": "^8.23.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.0.2"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
     "@types/katex": "^0.16.7",
     "@types/node": "^22.13.10",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.3",
+    "prisma": "8.0.0-rc.28",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.2"
   }
