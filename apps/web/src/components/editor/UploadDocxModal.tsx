@@ -119,7 +119,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         throw new Error("Could not extract readable text from this document. Please ensure it is a valid .docx file.");
       }
 
-      const calculatedPageCount = Math.max(1, Math.ceil(totalWordCount / 320));
+      const calculatedPageCount = Math.max(1, Math.ceil(totalWordCount / 500));
 
       const newDocMeta: DocumentMeta = {
         id: `doc_user_${Date.now()}`,
@@ -164,17 +164,58 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
     }
   };
 
-  // Helper to split text into academic sentences with realistic AI scoring
+  // Helper to split text into academic sentences with realistic AI scoring and protected abbreviations/headings
   const splitIntoSentences = (text: string, pIdx: number, startCounter: number): DocumentSentence[] => {
-    // Regex for sentence boundary
-    const rawSentences = text
-      .match(/[^.!?]+[.!?]+(\s+|$)|[^.!?]+$/g)
-      ?.map((s) => s.trim())
-      .filter((s) => s.length > 0) || [text];
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+
+    // If it's a short title or heading, preserve as a single sentence without fragmenting on periods
+    if (trimmed.length < 80 && !trimmed.includes(". ")) {
+      return [
+        {
+          id: `s_real_${startCounter}`,
+          nodeId: `p_real_${pIdx + 1}`,
+          paragraphIndex: pIdx,
+          text: trimmed,
+          charStart: 0,
+          charEnd: trimmed.length,
+          locked: false,
+          ignored: false,
+          score: {
+            sentenceId: `s_real_${startCounter}`,
+            score: 0.06,
+            band: "likely_human",
+            confidence: 0.98,
+            reasons: [],
+          },
+        },
+      ];
+    }
+
+    // Protect abbreviations, numbered lists (1. Introduction), and decimals (0.05)
+    const DOT_PLACEHOLDER = "___EDUX_DOT___";
+    const protectedText = trimmed
+      // Numbered headings like "1. ", "2.1. "
+      .replace(/(^|\s)(\d+)\.(\s+)/g, "$1$2" + DOT_PLACEHOLDER + "$3")
+      .replace(/(^|\s)(\d+\.\d+)\.(\s+)/g, "$1$2" + DOT_PLACEHOLDER + "$3")
+      // Decimals like 0.05, 3.14
+      .replace(/(\d+)\.(\d+)/g, "$1" + DOT_PLACEHOLDER + "$2")
+      // Academic abbreviations
+      .replace(/\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr)\./gi, "$1" + DOT_PLACEHOLDER)
+      .replace(/\b(et al|i\.e|e\.g|vs|cf|vol|pp|p|ed|eds)\./gi, (m) => m.replace(/\./g, DOT_PLACEHOLDER));
+
+    // Split on punctuation followed by whitespace and an uppercase letter/quote
+    const rawSplits = protectedText.split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/);
+
+    const rawSentences = rawSplits
+      .map((s) => s.replace(new RegExp(DOT_PLACEHOLDER, "g"), ".").trim())
+      .filter((s) => s.length > 0);
+
+    const finalSentences = rawSentences.length > 0 ? rawSentences : [trimmed];
 
     let charCursor = 0;
 
-    return rawSentences.map((sText, sIdx) => {
+    return finalSentences.map((sText, sIdx) => {
       const sentenceId = `s_real_${startCounter + sIdx}`;
       const charStart = charCursor;
       const charEnd = charStart + sText.length;

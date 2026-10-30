@@ -38,6 +38,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("academic_researcher");
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -108,17 +109,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     setError(null);
+    setSuccessMessage(null);
     setLoading(true);
     try {
-      const auth = await apiClient.register({
+      await apiClient.register({
         name: cleanName,
         email: cleanEmail,
         password: cleanPass,
         role,
       });
-      setCurrentUser(auth.user);
-      onAuthSuccess?.(auth.user);
-      setMode("status");
+      // Best Practice: Do not auto-login on register. Require explicit sign in
+      apiClient.setToken(null, null);
+      setPassword("");
+      setSuccessMessage("Account created successfully! Please enter your password to sign in.");
+      setMode("login");
     } catch (err: any) {
       setError(err.message || "Registration failed. Please try another email.");
     } finally {
@@ -199,6 +203,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="button"
               onClick={() => {
                 setError(null);
+                setSuccessMessage(null);
                 setMode("register");
               }}
               className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
@@ -209,6 +214,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             >
               Create Account
             </button>
+          </div>
+        )}
+
+        {/* Success Alert */}
+        {successMessage && (
+          <div className="mx-6 mt-4 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{successMessage}</span>
           </div>
         )}
 

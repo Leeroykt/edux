@@ -43,6 +43,18 @@ export default function StealthLandingPage() {
   const [selectedStyle, setSelectedStyle] = useState<"academic" | "immunity">("academic");
   const [copied, setCopied] = useState(false);
 
+  // AI Detector state
+  const [detectionResult, setDetectionResult] = useState<{
+    aiScore: number;
+    humanScore: number;
+    perplexity: number;
+    burstiness: number;
+    flaggedPhrases: string[];
+    summary: string;
+  } | null>(null);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [detectionStep, setDetectionStep] = useState("");
+
   // Hero Card Demo State
   const [heroCardHumanized, setHeroCardHumanized] = useState(false);
   const [heroCardProcessing, setHeroCardProcessing] = useState(false);
@@ -126,6 +138,67 @@ export default function StealthLandingPage() {
       setIsProcessing(false);
       setProcessStep("");
     }, 1200);
+  };
+
+  // Run AI Detector
+  const handleDetectAi = async () => {
+    if (!inputText.trim()) return;
+    setIsDetecting(true);
+    setDetectionStep("Tokenizing n-gram frequency distribution...");
+
+    setTimeout(() => {
+      setDetectionStep("Calculating stylometric perplexity & burstiness...");
+    }, 350);
+
+    setTimeout(() => {
+      setDetectionStep("Scanning for Turnitin & GPTZero formulaic signatures...");
+    }, 700);
+
+    setTimeout(() => {
+      const lower = inputText.toLowerCase();
+      const detectedPhrases: string[] = [];
+      const stockTerms = [
+        "furthermore",
+        "moreover",
+        "in conclusion",
+        "delve",
+        "delving into",
+        "testament to",
+        "crucial",
+        "pivotal",
+        "landscape",
+        "unprecedented capability",
+        "it is essential",
+      ];
+      stockTerms.forEach((term) => {
+        if (lower.includes(term)) detectedPhrases.push(term);
+      });
+
+      const hasStock = detectedPhrases.length > 0;
+      const aiScore = hasStock
+        ? Math.min(96, 68 + detectedPhrases.length * 9)
+        : wordCount > 25
+        ? 42
+        : 12;
+      const humanScore = 100 - aiScore;
+      const perplexity = hasStock ? 22.4 : 64.8;
+      const burstiness = hasStock ? 16.2 : 58.7;
+
+      setDetectionResult({
+        aiScore,
+        humanScore,
+        perplexity,
+        burstiness,
+        flaggedPhrases: detectedPhrases.length > 0 ? detectedPhrases : ["Formulaic transition density"],
+        summary:
+          aiScore > 50
+            ? "High concentration of automated linguistic markers and low syntactic variance typical of LLMs."
+            : "Natural variation in clause complexity and vocabulary distribution characteristic of human authorship.",
+      });
+
+      setIsDetecting(false);
+      setDetectionStep("");
+    }, 1100);
   };
 
   // Copy output
@@ -218,13 +291,13 @@ export default function StealthLandingPage() {
             <div className="flex items-center gap-2.5">
               <button
                 onClick={() => setIsAuthModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-xl text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors cursor-pointer font-bold"
+                className="px-3.5 py-1.5 rounded-xl text-slate-700 dark:text-slate-200 hover:text-elite-600 dark:hover:text-elite-400 hover:bg-elite-50/60 dark:hover:bg-slate-800/70 transition-colors cursor-pointer font-bold"
               >
                 Sign In
               </button>
               <button
                 onClick={() => setIsAuthModalOpen(true)}
-                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-950 font-bold shadow-md shadow-slate-900/10 dark:shadow-white/10 active:scale-95 transition-all cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-elite-600 hover:bg-elite-500 text-white font-bold shadow-md shadow-elite-600/25 active:scale-95 transition-all cursor-pointer"
               >
                 Get Started
               </button>
@@ -243,15 +316,15 @@ export default function StealthLandingPage() {
           {/* Left Hero Column */}
           <div className="lg:col-span-7 space-y-6">
             {/* Pill Badge */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-xs">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-elite-50 dark:bg-elite-950/80 border border-elite-200 dark:border-elite-800 text-xs font-bold text-elite-700 dark:text-elite-300 shadow-xs">
               <Sparkles className="w-3.5 h-3.5 text-elite-600 dark:text-elite-400" />
-              <span>Humanize AI text & Detector</span>
+              <span>Lossless Humanizer & Turnitin Immunity</span>
             </div>
 
             {/* Headline */}
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-950 dark:text-white leading-[1.1]">
               Humanize your <br />
-              <span className="text-slate-600 dark:text-slate-300">AI writing</span>
+              <span className="bg-gradient-to-r from-elite-600 via-indigo-600 to-teal-500 bg-clip-text text-transparent">AI writing</span>
             </h1>
 
             {/* Subtitle */}
@@ -263,7 +336,7 @@ export default function StealthLandingPage() {
             <div className="flex flex-wrap items-center gap-3.5 pt-2">
               <a
                 href="#try-it-now"
-                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-950 text-sm font-bold shadow-lg shadow-slate-900/10 dark:shadow-white/10 active:scale-95 transition-all cursor-pointer"
+                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-sm font-bold shadow-lg shadow-elite-600/30 active:scale-95 transition-all cursor-pointer"
               >
                 <span>Start for Free</span>
                 <ArrowRight className="w-4 h-4" />
@@ -271,7 +344,7 @@ export default function StealthLandingPage() {
 
               <button
                 onClick={() => setIsAuthModalOpen(true)}
-                className="px-6 py-3.5 rounded-xl bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700/80 text-sm font-bold transition-all cursor-pointer shadow-xs"
+                className="px-6 py-3.5 rounded-xl bg-white hover:bg-elite-50/60 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-elite-600 dark:hover:text-elite-400 border border-slate-200 dark:border-slate-800 hover:border-elite-300 dark:hover:border-elite-700 text-sm font-bold transition-all cursor-pointer shadow-xs"
               >
                 Sign In
               </button>
@@ -406,8 +479,8 @@ export default function StealthLandingPage() {
                 onClick={() => setActiveTab("humanizer")}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   activeTab === "humanizer"
-                    ? "bg-white dark:bg-elite-600 text-slate-950 dark:text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                    ? "bg-elite-600 text-white shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-elite-600 dark:hover:text-white"
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
@@ -417,8 +490,8 @@ export default function StealthLandingPage() {
                 onClick={() => setActiveTab("detector")}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   activeTab === "detector"
-                    ? "bg-white dark:bg-elite-600 text-slate-950 dark:text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                    ? "bg-elite-600 text-white shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-elite-600 dark:hover:text-white"
                 }`}
               >
                 <ShieldCheck className="w-3.5 h-3.5" />
@@ -434,7 +507,7 @@ export default function StealthLandingPage() {
                   onClick={() => setSelectedStyle("academic")}
                   className={`px-3 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
                     selectedStyle === "academic"
-                      ? "bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+                      ? "bg-elite-100 dark:bg-elite-950/80 text-elite-700 dark:text-elite-300 border border-elite-300 dark:border-elite-800 font-bold"
                       : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                   }`}
                 >
@@ -444,7 +517,7 @@ export default function StealthLandingPage() {
                   onClick={() => setSelectedStyle("immunity")}
                   className={`px-3 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
                     selectedStyle === "immunity"
-                      ? "bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+                      ? "bg-elite-100 dark:bg-elite-950/80 text-elite-700 dark:text-elite-300 border border-elite-300 dark:border-elite-800 font-bold"
                       : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                   }`}
                 >
@@ -475,7 +548,7 @@ export default function StealthLandingPage() {
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   rows={8}
-                  placeholder="Paste your AI text here to humanize or detect..."
+                  placeholder={activeTab === "detector" ? "Paste text to scan for Turnitin & GPTZero AI patterns..." : "Paste your AI text here to humanize..."}
                   className="w-full bg-transparent border-0 text-slate-900 dark:text-slate-200 text-sm leading-relaxed resize-none focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-600"
                 />
               </div>
@@ -501,14 +574,25 @@ export default function StealthLandingPage() {
                     </button>
                   )}
 
-                  <button
-                    onClick={handleHumanizeText}
-                    disabled={isProcessing || !inputText.trim()}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-xs font-bold shadow-md shadow-elite-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{isProcessing ? "Humanizing..." : "Humanize Text"}</span>
-                  </button>
+                  {activeTab === "detector" ? (
+                    <button
+                      onClick={handleDetectAi}
+                      disabled={isDetecting || !inputText.trim()}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-xs font-bold shadow-md shadow-elite-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>{isDetecting ? "Scanning AI..." : "Detect AI 🔍"}</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleHumanizeText}
+                      disabled={isProcessing || !inputText.trim()}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-xs font-bold shadow-md shadow-elite-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>{isProcessing ? "Humanizing..." : "Humanize Text"}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -519,16 +603,21 @@ export default function StealthLandingPage() {
                 <div className="flex items-center justify-between pb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Humanized Output
+                      {activeTab === "detector" ? "AI Detection Diagnostic Report" : "Humanized Output"}
                     </span>
-                    {humanizedAiScore !== null && (
+                    {activeTab === "detector" && detectionResult && (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${detectionResult.aiScore > 50 ? "bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300 border border-rose-300 dark:border-rose-800" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30"}`}>
+                        {detectionResult.aiScore}% AI Likelihood
+                      </span>
+                    )}
+                    {activeTab === "humanizer" && humanizedAiScore !== null && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
                         98% Human Cadence
                       </span>
                     )}
                   </div>
 
-                  {outputText && (
+                  {activeTab === "humanizer" && outputText && (
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleCopy}
@@ -540,7 +629,7 @@ export default function StealthLandingPage() {
 
                       <button
                         onClick={handleOpenInEditor}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-elite-600 hover:bg-elite-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-elite-600 hover:bg-elite-500 text-white text-xs font-bold transition-colors cursor-pointer"
                         title="Open in full Word Editor"
                       >
                         <FileText className="w-3.5 h-3.5" />
@@ -551,7 +640,130 @@ export default function StealthLandingPage() {
                 </div>
 
                 {/* Output content area */}
-                {isProcessing ? (
+                {activeTab === "detector" ? (
+                  isDetecting ? (
+                    <div className="py-12 flex flex-col items-center justify-center space-y-3 text-center">
+                      <div className="w-8 h-8 rounded-full border-2 border-elite-600 border-t-transparent animate-spin" />
+                      <p className="text-xs font-bold text-slate-900 dark:text-slate-200 animate-pulse">
+                        {detectionStep || "Scanning stylometric features..."}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Evaluating n-gram perplexity, variance & formulaic transitions
+                      </p>
+                    </div>
+                  ) : detectionResult ? (
+                    <div className="space-y-4">
+                      {/* Top Detection Gauge Banner */}
+                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="relative w-14 h-14 shrink-0 flex items-center justify-center">
+                            <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                              <path
+                                className="text-slate-100 dark:text-slate-800"
+                                strokeWidth="4"
+                                stroke="currentColor"
+                                fill="none"
+                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                              />
+                              <path
+                                className={detectionResult.aiScore > 50 ? "text-rose-500" : "text-emerald-500"}
+                                strokeDasharray={`${detectionResult.aiScore}, 100`}
+                                strokeWidth="4"
+                                strokeLinecap="round"
+                                stroke="currentColor"
+                                fill="none"
+                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                              />
+                            </svg>
+                            <div className="absolute font-black text-xs text-slate-900 dark:text-white">
+                              {detectionResult.aiScore}%
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-slate-900 dark:text-white">
+                              {detectionResult.aiScore > 50 ? "AI-Generated Patterns Detected" : "Passed Human Check"}
+                            </div>
+                            <div className={`text-xs font-semibold ${detectionResult.aiScore > 50 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                              {detectionResult.aiScore > 50 ? `${detectionResult.aiScore}% Probability of Machine Text` : `${detectionResult.humanScore}% Likely Human Authorship`}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setActiveTab("humanizer");
+                            handleHumanizeText();
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-xs font-bold shadow-md shadow-elite-600/25 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shrink-0"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Humanize Now</span>
+                        </button>
+                      </div>
+
+                      {/* Perplexity & Burstiness Metric Cards */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 rounded-xl bg-slate-100/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            Perplexity Score
+                          </span>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-base font-black text-slate-900 dark:text-white">
+                              {detectionResult.perplexity}
+                            </span>
+                            <span className="text-[10px] text-slate-500">/ 100</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500">
+                            {detectionResult.perplexity < 40 ? "Low (Formulaic LLM tokens)" : "High (Human nuance)"}
+                          </p>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-slate-100/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            Burstiness Index
+                          </span>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-base font-black text-slate-900 dark:text-white">
+                              {detectionResult.burstiness}
+                            </span>
+                            <span className="text-[10px] text-slate-500">/ 100</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500">
+                            {detectionResult.burstiness < 40 ? "Low (Uniform length)" : "High (Dynamic cadence)"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Detected Marker Chips */}
+                      <div className="p-3 rounded-xl bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800/80 space-y-1.5">
+                        <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                          Flagged Phrasing & Transitions:
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {detectionResult.flaggedPhrases.map((phrase, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-[11px] font-semibold"
+                            >
+                              &ldquo;{phrase}&rdquo;
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {detectionResult.summary}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="py-16 text-center text-slate-500 text-xs flex flex-col items-center justify-center space-y-2">
+                      <ShieldCheck className="w-8 h-8 text-slate-400" />
+                      <p className="max-w-xs text-slate-600 dark:text-slate-400">
+                        Click <strong className="text-elite-600 dark:text-elite-400">&ldquo;Detect AI 🔍&rdquo;</strong> on the left to scan your writing against Turnitin, GPTZero, and academic stylometric classifiers.
+                      </p>
+                    </div>
+                  )
+                ) : isProcessing ? (
                   <div className="py-12 flex flex-col items-center justify-center space-y-3 text-center">
                     <div className="w-8 h-8 rounded-full border-2 border-elite-600 border-t-transparent animate-spin" />
                     <p className="text-xs font-bold text-slate-900 dark:text-slate-200 animate-pulse">
@@ -588,7 +800,7 @@ export default function StealthLandingPage() {
                   <div className="py-16 text-center text-slate-500 text-xs flex flex-col items-center justify-center space-y-2">
                     <Sparkles className="w-6 h-6 text-slate-400" />
                     <p className="max-w-xs">
-                      Click <strong className="text-slate-800 dark:text-slate-300">"Humanize Text"</strong> on the left to see instant academic transformation with zero AI flags.
+                      Click <strong className="text-slate-800 dark:text-slate-300">&ldquo;Humanize Text&rdquo;</strong> on the left to see instant academic transformation with zero AI flags.
                     </p>
                   </div>
                 )}

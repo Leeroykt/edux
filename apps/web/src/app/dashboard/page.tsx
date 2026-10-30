@@ -102,13 +102,15 @@ export default function DashboardPage() {
 
       {/* 2. Main App Container */}
       <main className="flex-1 min-h-0 flex overflow-hidden relative">
-        <EditorSidebar
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          similarityScore={documentMeta?.similarityScore || 0}
-          paperCount={documents.length}
-          onOpenUploadModal={() => setIsUploadModalOpen(true)}
-        />
+        {currentUser && (
+          <EditorSidebar
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            similarityScore={documentMeta?.similarityScore || 0}
+            paperCount={documents.length}
+            onOpenUploadModal={() => setIsUploadModalOpen(true)}
+          />
+        )}
 
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (

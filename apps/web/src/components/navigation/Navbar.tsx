@@ -20,7 +20,8 @@ import {
   CheckCircle2,
   Home,
   ChevronDown,
-  FolderOpen
+  FolderOpen,
+  LogIn
 } from "lucide-react";
 import { UsageSummary, User } from "@edux/schema";
 import { AuthModal } from "./AuthModal";
@@ -64,7 +65,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   const navLinks = [
-    { href: "/dashboard", label: "Dashboard", icon: <Home className="w-4 h-4" /> },
+    ...(currentUser ? [{ href: "/dashboard", label: "Dashboard", icon: <Home className="w-4 h-4" /> }] : []),
     { href: "/edit", label: "Word Editor", icon: <FileText className="w-4 h-4" /> },
     { href: "/report", label: "Similarity", icon: <ShieldCheck className="w-4 h-4" />, badge: "16%" },
     { href: "/edupro", label: "Edu Pro Board", icon: <FolderKanban className="w-4 h-4" />, badge: "Pro" },
@@ -164,26 +165,34 @@ export const Navbar: React.FC<NavbarProps> = ({
           {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
         </button>
 
-        {/* User Profile Avatar with Plan Badge */}
-        <button
-          onClick={() => setIsAuthModalOpen(true)}
-          className="flex items-center gap-2 pl-1 select-none group cursor-pointer"
-          title="Account, Session & Plan Quota"
-        >
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-elite-600 to-teal-400 text-white flex items-center justify-center font-bold text-xs ring-2 ring-elite-100 dark:ring-slate-800 shadow-xs group-hover:scale-105 transition-transform">
-            {currentUser?.name
-              ? currentUser.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase()
-              : "AH"}
-          </div>
-          <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-elite-50 dark:bg-elite-950 text-elite-700 dark:text-elite-300 border border-elite-200 dark:border-elite-800">
-            {currentUser?.planType === "edu_pro" ? "Edu Pro" : "Individual"}
-          </span>
-        </button>
+        {/* User Profile Avatar (Logged In) OR Sign In Button (Guest) */}
+        {currentUser ? (
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            className="flex items-center gap-2 pl-1 select-none group cursor-pointer"
+            title="Account, Session & Plan Quota"
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-elite-600 to-teal-400 text-white flex items-center justify-center font-bold text-xs ring-2 ring-elite-100 dark:ring-slate-800 shadow-xs group-hover:scale-105 transition-transform">
+              {currentUser.name
+                .split(" ")
+                .map((n) => n[0])
+                .join("")
+                .slice(0, 2)
+                .toUpperCase()}
+            </div>
+            <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-elite-50 dark:bg-elite-950 text-elite-700 dark:text-elite-300 border border-elite-200 dark:border-elite-800">
+              {currentUser.planType === "edu_pro" ? "Edu Pro" : "Individual"}
+            </span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            <span>Sign In</span>
+          </button>
+        )}
 
         {/* Mobile Hamburger Button */}
         <button

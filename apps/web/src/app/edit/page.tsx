@@ -55,26 +55,8 @@ export default function WordEditorPage() {
   const [aiThreshold, setAiThreshold] = useState<number>(0.45);
   const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(true);
 
-  // Inserted Elements (Academic Figures & Tables)
-  const [insertedElements, setInsertedElements] = useState<InsertedElement[]>([
-    {
-      id: "elem_img_1",
-      type: "image",
-      afterParagraphIndex: 1,
-      data: {
-        url: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80",
-        caption: "Figure 1: Benchmark comparative performance across sequence lengths.",
-        align: "center",
-        widthPercent: 75,
-      },
-    },
-    {
-      id: "elem_table_1",
-      type: "table",
-      afterParagraphIndex: 2,
-      data: { rows: 3, cols: 3 },
-    },
-  ]);
+  // Inserted Elements (Academic Figures & Tables) - Start clean with zero phantom images
+  const [insertedElements, setInsertedElements] = useState<InsertedElement[]>([]);
 
   // Modals
   const [isEquationModalOpen, setIsEquationModalOpen] = useState(false);
@@ -145,6 +127,7 @@ export default function WordEditorPage() {
               setSimilarityReport(rep);
               setUsage(usg);
               setAllDocuments([parsed.meta, ...libraryDocs]);
+              setInsertedElements([]);
 
               // Dynamically build suggestions for any flagged sentence in the real document
               const dynamicSuggs: Record<string, SuggestionCandidate[]> = {
@@ -207,6 +190,7 @@ export default function WordEditorPage() {
     setIsSaving(true);
     try {
       setSelectedSentence(null);
+      setInsertedElements([]);
       const cached =
         typeof window !== "undefined"
           ? window.sessionStorage.getItem("active_document")
@@ -548,6 +532,7 @@ export default function WordEditorPage() {
   ) => {
     setDocumentMeta(doc);
     setParagraphs(parsedParagraphs);
+    setInsertedElements([]);
     setIsHumanisedScanned(false);
     setSelectedSentence(null);
 
@@ -679,6 +664,7 @@ export default function WordEditorPage() {
             isSaving={isSaving}
             wordCount={documentMeta?.wordCount || 3840}
             pageCount={documentMeta?.pageCount || 12}
+            isSampleDocument={documentMeta?.id === "doc_84719a" || documentMeta?.id === "doc_101"}
           />
 
           <InspectorPanel

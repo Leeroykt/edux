@@ -83,6 +83,7 @@ interface DocumentEditorProps {
   isSaving: boolean;
   wordCount: number;
   pageCount: number;
+  isSampleDocument?: boolean;
 }
 
 const ACADEMIC_SYNONYMS: Record<string, string[]> = {
@@ -142,6 +143,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   isSaving,
   wordCount,
   pageCount,
+  isSampleDocument = false,
 }) => {
   const [hoveredSentenceId, setHoveredSentenceId] = useState<string | null>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
@@ -249,10 +251,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         (acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length,
         0
       );
-      // Group: 2 to 3 paragraphs per sheet or ~260 words
+      // Standard realistic academic A4 page: ~520 words or 5-7 paragraphs per sheet
       if (
-        currentPageItems.length >= 2 &&
-        (currentWords + pWordCount > 260 || currentPageItems.length >= 3)
+        currentPageItems.length >= 3 &&
+        (currentWords + pWordCount > 520 || currentPageItems.length >= 6)
       ) {
         result.push({
           pageNumber: result.length + 1,
@@ -653,8 +655,23 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                             <div
                               key={el.id}
                               contentEditable={false}
-                              className="overflow-x-auto my-3 select-none"
+                              className="overflow-x-auto my-4 select-none relative group"
                             >
+                              <div className="flex items-center justify-between pb-1.5 px-1 text-xs text-slate-500">
+                                <span className="font-semibold text-[11px] text-slate-500">
+                                  Table ({el.data?.rows || 3} rows x {el.data?.cols || 3} cols)
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDeleteElement(el.id);
+                                  }}
+                                  className="text-rose-600 hover:text-rose-700 dark:text-rose-400 text-xs font-bold px-2 py-0.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                >
+                                  Remove Table
+                                </button>
+                              </div>
                               <table className="word-table">
                                 <thead>
                                   <tr>
@@ -684,8 +701,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 );
               })}
 
-              {/* Equation on Page 1 */}
-              {page.pageNumber === 1 && (
+              {/* Equation on Page 1 (Only for benchmark sample manuscript) */}
+              {page.pageNumber === 1 && isSampleDocument && (
                 <div
                   contentEditable={false}
                   onClick={onOpenEquationModal}
