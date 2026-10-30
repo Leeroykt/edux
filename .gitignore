@@ -25,6 +25,9 @@ pnpm-debug.log*
 Thumbs.db
 *.swp
 
+# Database local storage
+.data/
+
 # IDE
 .vscode/
 .idea/

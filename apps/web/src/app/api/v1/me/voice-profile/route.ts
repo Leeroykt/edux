@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "../../../../../../server/auth/authMiddleware";
+import { authenticateRequest } from "@/server/auth/authMiddleware";
 
 export async function GET(req: NextRequest) {
   const auth = await authenticateRequest(req);

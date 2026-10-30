@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "../../../../../../../server/auth/authMiddleware";
-import { db } from "../../../../../../../server/db/store";
+import { authenticateRequest } from "@/server/auth/authMiddleware";
+import { db } from "@/server/db/store";
 
 export async function GET(
   req: NextRequest,

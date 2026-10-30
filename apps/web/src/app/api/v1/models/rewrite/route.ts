@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { modelConnector } from "../../../../../../server/models/modelConnector";
+import { modelConnector } from "@/server/models/modelConnector";
 
 /**
  * Model Rewriter Endpoint for ML / LoRA fine-tuned model integration.

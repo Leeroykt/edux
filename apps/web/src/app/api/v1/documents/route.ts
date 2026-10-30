@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "../../../../../server/auth/authMiddleware";
-import { db } from "../../../../../server/db/store";
-import { modelConnector } from "../../../../../server/models/modelConnector";
-import { DbDocument, DbDocumentNode, DbSentence, DbSentenceScore, DbSuggestion } from "../../../../../server/db/schema";
+import { authenticateRequest } from "@/server/auth/authMiddleware";
+import { db } from "@/server/db/store";
+import { modelConnector } from "@/server/models/modelConnector";
+import { DbDocument, DbDocumentNode, DbSentence, DbSentenceScore, DbSuggestion } from "@/server/db/schema";
 
 export async function GET(req: NextRequest) {
   const auth = await authenticateRequest(req);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "../../../../../../../server/auth/authMiddleware";
-import { db } from "../../../../../../../server/db/store";
-import { modelConnector } from "../../../../../../../server/models/modelConnector";
+import { authenticateRequest } from "@/server/auth/authMiddleware";
+import { db } from "@/server/db/store";
+import { modelConnector } from "@/server/models/modelConnector";
 
 export async function GET(
   req: NextRequest,

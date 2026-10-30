@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "../../../../../server/db/store";
+import { db } from "@/server/db/store";
 
 export async function POST(req: NextRequest) {
   try {

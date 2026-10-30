@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { modelConnector } from "../../../../../../server/models/modelConnector";
+import { modelConnector } from "@/server/models/modelConnector";
 
 /**
  * Model Detection Endpoint for ML / AI model integration.
