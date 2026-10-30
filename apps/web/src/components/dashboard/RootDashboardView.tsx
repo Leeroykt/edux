@@ -35,56 +35,12 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [batchModalMode, setBatchModalMode] = useState<BatchModalMode | null>(null);
 
-  // Extended mock papers for the dashboard
-  const allPapers: DocumentMeta[] = [
-    lastDocument,
-    ...documents,
-    {
-      id: "doc_105",
-      ownerId: "usr_99120",
-      title: "Algorithmic Fairness in Automated Grading Systems.docx",
-      status: "ready",
-      stage: "uploaded",
-      currentVersionId: "v_1",
-      ownerDeclaredOwn: true,
-      wordCount: 4520,
-      pageCount: 14,
-      overallAiScore: 0.12,
-      similarityScore: 9,
-      createdAt: "2026-10-25T10:00:00Z",
-      updatedAt: "2026-10-29T14:30:00Z",
-    },
-    {
-      id: "doc_106",
-      ownerId: "usr_99120",
-      title: "Quantum Key Distribution Protocols in Mesh Networks.docx",
-      status: "ready",
-      stage: "in_review",
-      currentVersionId: "v_2",
-      ownerDeclaredOwn: true,
-      wordCount: 6100,
-      pageCount: 19,
-      overallAiScore: 0.65,
-      similarityScore: 21,
-      createdAt: "2026-10-24T12:00:00Z",
-      updatedAt: "2026-10-28T09:15:00Z",
-    },
-    {
-      id: "doc_107",
-      ownerId: "usr_99120",
-      title: "Ethical Dialectics of Autonomous Machine Translation.docx",
-      status: "ready",
-      stage: "returned",
-      currentVersionId: "v_3",
-      ownerDeclaredOwn: true,
-      wordCount: 3200,
-      pageCount: 10,
-      overallAiScore: 0.08,
-      similarityScore: 5,
-      createdAt: "2026-10-20T08:00:00Z",
-      updatedAt: "2026-10-27T16:45:00Z",
-    },
-  ];
+  // Real papers only - no hardcoded mock papers
+  const allPapers: DocumentMeta[] = (documents && documents.length > 0)
+    ? documents
+    : (lastDocument && lastDocument.id !== "doc_84719a" && !lastDocument.id.startsWith("mock"))
+    ? [lastDocument]
+    : [];
 
   // Filtering
   const filteredPapers = allPapers.filter((doc) => {
@@ -270,7 +226,31 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                {filteredPapers.map((doc) => {
+                {filteredPapers.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-16 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center space-y-3">
+                        <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center">
+                          <FileText className="w-6 h-6" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                          Your manuscript library is empty
+                        </h4>
+                        <p className="text-xs text-slate-500 max-w-sm">
+                          Upload your .docx manuscript to start lossless humanizing, similarity detection, and academic rewriting.
+                        </p>
+                        <button
+                          onClick={onOpenUploadModal}
+                          className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-xs font-bold transition-all cursor-pointer"
+                        >
+                          <UploadCloud className="w-4 h-4" />
+                          <span>Upload .docx File</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredPapers.map((doc) => {
                   const isChecked = selectedDocIds.includes(doc.id);
                   const aiPercent = Math.round((doc.overallAiScore || 0) * 100);
                   const isHighAi = aiPercent > 40;
@@ -372,7 +352,7 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
                       </td>
                     </tr>
                   );
-                })}
+                }))}
               </tbody>
             </table>
           </div>

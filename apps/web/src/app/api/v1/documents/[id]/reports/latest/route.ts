@@ -23,6 +23,27 @@ export async function GET(
     overallPercentage: doc.similarityScore || 16,
     aiLikelihoodBand: (doc.overallAiScore || 0.38) > 0.6 ? "likely_machine" : "uncertain",
     poolsSearched: ["open_scholarly", "web_index", "edux_repository"],
+    exclusionsApplied: {
+      excludeQuotes: true,
+      excludeBibliography: true,
+      excludeSmallMatches: true,
+    },
+    matches: [
+      {
+        id: "match_01",
+        sentenceId: "s_02",
+        sourceId: "src_01",
+        similarityScore: 92,
+        matchedLength: 124,
+      },
+      {
+        id: "match_02",
+        sentenceId: "s_04",
+        sourceId: "src_02",
+        similarityScore: 84,
+        matchedLength: 88,
+      },
+    ],
     matchedSources: [
       {
         id: "src_01",

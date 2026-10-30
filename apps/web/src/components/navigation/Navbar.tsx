@@ -56,10 +56,10 @@ export const Navbar: React.FC<NavbarProps> = ({
     const user = apiClient.getCurrentUser();
     if (user) {
       setCurrentUser(user);
-    } else {
+    } else if (apiClient.getToken()) {
       apiClient.getMe().then((res) => {
         if (res && res.user) setCurrentUser(res.user);
-      });
+      }).catch(() => {});
     }
   }, []);
 

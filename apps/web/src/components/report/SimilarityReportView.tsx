@@ -32,23 +32,26 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
   documentTitle,
   onJumpToEditorSentence,
 }) => {
-  const [excludeQuotes, setExcludeQuotes] = useState(report.exclusionsApplied.excludeQuotes);
+  const [excludeQuotes, setExcludeQuotes] = useState(report.exclusionsApplied?.excludeQuotes ?? true);
   const [excludeBibliography, setExcludeBibliography] = useState(
-    report.exclusionsApplied.excludeBibliography
+    report.exclusionsApplied?.excludeBibliography ?? true
   );
   const [excludeSmallMatches, setExcludeSmallMatches] = useState(
-    report.exclusionsApplied.excludeSmallMatches
+    report.exclusionsApplied?.excludeSmallMatches ?? true
   );
-  const [selectedMatchId, setSelectedMatchId] = useState<string>(report.matches[0]?.id || "");
+
+  const matches = report.matches || [];
+  const matchedSources = report.matchedSources || [];
+  const [selectedMatchId, setSelectedMatchId] = useState<string>(matches[0]?.id || "");
 
   // Dynamically compute adjusted similarity based on exclusions
-  let adjustedScore = report.overallPercentage;
+  let adjustedScore = report.overallPercentage || 0;
   if (!excludeQuotes) adjustedScore += 4;
   if (!excludeBibliography) adjustedScore += 3;
   if (!excludeSmallMatches) adjustedScore += 2;
 
-  const currentMatch = report.matches.find((m) => m.id === selectedMatchId) || report.matches[0];
-  const currentSource = report.matchedSources.find((s) => s.id === currentMatch?.sourceId);
+  const currentMatch = matches.find((m) => m.id === selectedMatchId) || matches[0];
+  const currentSource = matchedSources.find((s) => s.id === currentMatch?.sourceId);
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-950 p-3 sm:p-6 md:p-8">
@@ -196,7 +199,7 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
                   <div
                     key={source.id}
                     onClick={() => {
-                      const m = report.matches.find((match) => match.sourceId === source.id);
+                      const m = matches.find((match) => match.sourceId === source.id);
                       if (m) setSelectedMatchId(m.id);
                     }}
                     className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${

@@ -104,28 +104,6 @@ export class EduxApiClient {
       headers,
     });
 
-    // Auto-login fallback if token is expired or unauthorized in dev
-    if (res.status === 401 && !token) {
-      try {
-        const loginRes = await fetch(`${API_BASE}/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: "researcher@oxford.ac.uk", password: "academic123" }),
-        });
-        if (loginRes.ok) {
-          const authData = await loginRes.json();
-          this.setToken(authData.accessToken, authData.user);
-          headers.set("Authorization", `Bearer ${authData.accessToken}`);
-          res = await fetch(fullUrl, {
-            ...options,
-            headers,
-          });
-        }
-      } catch (e) {
-        console.warn("Auto-login failed:", e);
-      }
-    }
-
     return res;
   }
 
@@ -174,7 +152,9 @@ export class EduxApiClient {
     }
   }
 
-  async getMe(): Promise<{ user: User; usage: UsageSummary }> {
+  async getMe(): Promise<{ user: User; usage: UsageSummary } | null> {
+    const token = this.getToken();
+    if (!token) return null;
     try {
       const res = await this.fetchWithAuth("/me");
       if (res.ok) {
@@ -183,9 +163,9 @@ export class EduxApiClient {
         return data;
       }
     } catch (e) {
-      console.warn("getMe fallback:", e);
+      console.warn("getMe error:", e);
     }
-    return { user: MOCK_USER, usage: MOCK_USAGE };
+    return null;
   }
 
   /* ---------------- DOCUMENTS API ---------------- */
@@ -197,9 +177,9 @@ export class EduxApiClient {
         return data.documents || [];
       }
     } catch (err) {
-      console.warn("Failed to fetch documents from server, fallback to mocks:", err);
+      console.warn("Failed to fetch documents from server:", err);
     }
-    return [MOCK_DOCUMENT, ...MOCK_EDU_PRO_PAPERS];
+    return [];
   }
 
   async getDocument(id: string): Promise<DocumentMeta> {
@@ -378,7 +358,7 @@ export class EduxApiClient {
     } catch (err) {
       console.warn("Failed to fetch folder docs:", err);
     }
-    return MOCK_EDU_PRO_PAPERS;
+    return [];
   }
 
   /* ---------------- DEDICATED MODEL INTEGRATION HOOKS ---------------- */

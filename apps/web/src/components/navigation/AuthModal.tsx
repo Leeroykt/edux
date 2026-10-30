@@ -28,7 +28,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   onAuthSuccess,
 }) => {
-  const [mode, setMode] = useState<"status" | "login" | "register">("status");
+  const [mode, setMode] = useState<"status" | "login" | "register">("login");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
 
@@ -64,15 +64,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   async function handleLogin(e?: React.FormEvent) {
     if (e) e.preventDefault();
+    const cleanEmail = email.trim();
+    const cleanPass = password.trim();
+
+    if (!cleanEmail || !cleanPass) {
+      setError("Please enter your email and password.");
+      return;
+    }
+
     setError(null);
     setLoading(true);
     try {
-      const auth = await apiClient.login(email || "researcher@oxford.ac.uk", password || "academic123");
+      const auth = await apiClient.login(cleanEmail, cleanPass);
       setCurrentUser(auth.user);
       onAuthSuccess?.(auth.user);
       setMode("status");
     } catch (err: any) {
-      setError(err.message || "Login failed");
+      setError(err.message || "Invalid email or password.");
     } finally {
       setLoading(false);
     }
@@ -80,19 +88,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
-    if (!name || !email || !password) {
-      setError("Please fill out all required fields.");
+    const cleanEmail = email.trim();
+    const cleanPass = password.trim();
+    const cleanName = name.trim() || cleanEmail.split("@")[0] || "Academic Scholar";
+
+    if (!cleanEmail || !cleanPass) {
+      setError("Please provide an email address and password.");
       return;
     }
+
+    if (!cleanEmail.includes("@") || !cleanEmail.includes(".")) {
+      setError("Please enter a valid email address (e.g. name@university.edu).");
+      return;
+    }
+
+    if (cleanPass.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+
     setError(null);
     setLoading(true);
     try {
-      const auth = await apiClient.register({ name, email, password, role });
+      const auth = await apiClient.register({
+        name: cleanName,
+        email: cleanEmail,
+        password: cleanPass,
+        role,
+      });
       setCurrentUser(auth.user);
       onAuthSuccess?.(auth.user);
       setMode("status");
     } catch (err: any) {
-      setError(err.message || "Registration failed");
+      setError(err.message || "Registration failed. Please try another email.");
     } finally {
       setLoading(false);
     }
@@ -107,24 +135,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   function handleDemoLogin() {
     setEmail("researcher@oxford.ac.uk");
     setPassword("academic123");
-    handleLogin();
+    setError(null);
+    setLoading(true);
+    apiClient
+      .login("researcher@oxford.ac.uk", "academic123")
+      .then((auth) => {
+        setCurrentUser(auth.user);
+        onAuthSuccess?.(auth.user);
+        setMode("status");
+      })
+      .catch((err) => setError(err.message || "Demo login failed"))
+      .finally(() => setLoading(false));
   }
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden transition-all">
         {/* Header */}
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-elite-600/10 dark:bg-elite-500/20 text-elite-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-2xl bg-elite-600/10 dark:bg-elite-500/20 text-elite-600 dark:text-elite-400 flex items-center justify-center font-bold">
               <GraduationCap className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                {mode === "status" && "EduX Account & Session"}
-                {mode === "login" && "Sign In to EduX"}
+                {mode === "status" && "Your Session & Quota"}
+                {mode === "login" && "Sign In to eduX"}
                 {mode === "register" && "Create Researcher Account"}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -134,15 +172,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Tab switcher when not in status mode */}
+        {mode !== "status" && (
+          <div className="px-6 pt-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setMode("login");
+              }}
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                mode === "login"
+                  ? "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 shadow-xs"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-white"
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setMode("register");
+              }}
+              className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                mode === "register"
+                  ? "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 shadow-xs"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-white"
+              }`}
+            >
+              Create Account
+            </button>
+          </div>
+        )}
+
         {/* Error Alert */}
         {error && (
-          <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs">
+          <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-medium">
             {error}
           </div>
         )}
@@ -173,13 +245,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </span>
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3" />
-                      Session Active (JWT)
+                      Active Session (JWT)
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Usage Quota Overview */}
+              {/* Usage Quota */}
               {usage && (
                 <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-800/30 border border-slate-200/70 dark:border-slate-800 space-y-2">
                   <div className="flex justify-between items-center text-xs">
@@ -215,12 +287,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   onClick={onClose}
                   className="flex-1 py-2.5 px-4 rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-xs font-bold transition-all shadow-sm shadow-elite-600/20 cursor-pointer"
                 >
-                  Continue
+                  Done
                 </button>
               </div>
             </div>
           ) : mode === "login" ? (
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} noValidate className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   Email Address
@@ -228,11 +300,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
-                    type="email"
-                    required
+                    type="text"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="researcher@oxford.ac.uk"
+                    placeholder="name@university.edu"
                     className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-elite-600"
                   />
                 </div>
@@ -246,7 +317,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
                     type="password"
-                    required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••••••"
@@ -275,74 +345,61 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   1-Click Sign In as Oxford Demo Researcher
                 </button>
               </div>
-
-              <div className="pt-2 text-center text-xs text-slate-500">
-                Need an account?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setError(null);
-                    setMode("register");
-                  }}
-                  className="text-elite-600 font-bold hover:underline cursor-pointer"
-                >
-                  Register here
-                </button>
-              </div>
             </form>
           ) : (
-            <form onSubmit={handleRegister} className="space-y-3.5">
+            <form onSubmit={handleRegister} noValidate className="space-y-3.5">
+              {/* Field 1: EMAIL FIRST */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Full Name
-                </label>
-                <div className="relative">
-                  <UserIcon className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Prof. Jane Doe"
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-elite-600"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Email Address
+                  Email Address *
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
-                    type="email"
-                    required
+                    type="text"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="jane.doe@university.edu"
+                    placeholder="e.g. admin@higrades.ac.zw"
                     className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-elite-600"
                   />
                 </div>
               </div>
 
+              {/* Field 2: PASSWORD */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Password
+                  Password *
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
                     type="password"
-                    required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
+                    placeholder="At least 6 characters"
                     className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-elite-600"
                   />
                 </div>
               </div>
 
+              {/* Field 3: FULL NAME (Optional) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Full Name / Academic Title <span className="font-normal text-slate-400">(Optional)</span>
+                </label>
+                <div className="relative">
+                  <UserIcon className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Dr. Alex Hawthorne"
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-elite-600"
+                  />
+                </div>
+              </div>
+
+              {/* Field 4: ROLE */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Academic Role
@@ -367,20 +424,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <Sparkles className="w-4 h-4" />
                 {loading ? "Creating Account..." : "Create Account"}
               </button>
-
-              <div className="pt-2 text-center text-xs text-slate-500">
-                Already registered?{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setError(null);
-                    setMode("login");
-                  }}
-                  className="text-elite-600 font-bold hover:underline cursor-pointer"
-                >
-                  Sign in here
-                </button>
-              </div>
             </form>
           )}
         </div>
