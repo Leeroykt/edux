@@ -119,15 +119,16 @@ export default function WordEditorPage() {
   useEffect(() => {
     async function init() {
       try {
-        const [doc, struct, rep, usg, eduDocs] = await Promise.all([
+        const [doc, struct, rep, usg, dbDocs, eduDocs] = await Promise.all([
           apiClient.getDocument("doc_84719a"),
           apiClient.getDocumentStructure("doc_84719a"),
           apiClient.getSimilarityReport("doc_84719a"),
           apiClient.getUsage(),
+          apiClient.getDocuments(),
           apiClient.getEduProDocuments(),
         ]);
 
-        const libraryDocs = [doc, ...eduDocs];
+        const libraryDocs = [...dbDocs, ...eduDocs.filter((ed) => !dbDocs.some((d) => d.id === ed.id))];
 
         // Check if there is an active document uploaded by the user in this session
         const cached =
@@ -304,6 +305,12 @@ export default function WordEditorPage() {
     setSelectedSentence((prev) =>
       prev ? { ...prev, text: updatedText, score: updatedScore } : null
     );
+
+    // Persist to backend database & decrement quota
+    apiClient.applySuggestion(selectedSentence.id, {
+      suggestionId: candidate.id,
+      text: candidate.text,
+    }).catch((err) => console.warn("API apply suggestion error:", err));
 
     setIsSaving(true);
     setTimeout(() => setIsSaving(false), 500);
@@ -532,6 +539,7 @@ export default function WordEditorPage() {
     if (selectedSentence?.id === sentenceId) {
       setSelectedSentence((prev) => (prev ? { ...prev, locked: !prev.locked } : null));
     }
+    apiClient.toggleSentenceLock(sentenceId).catch((err) => console.warn("API toggle lock error:", err));
   };
 
   const handleDocumentUploaded = (

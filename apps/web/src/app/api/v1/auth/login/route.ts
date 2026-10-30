@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "../../../../../server/db/store";
-import { verifyPassword } from "../../../../../server/auth/password";
-import { signAccessToken, signRefreshToken } from "../../../../../server/auth/jwt";
+import { db } from "@/server/db/store";
+import { verifyPassword } from "@/server/auth/password";
+import { signAccessToken, signRefreshToken } from "@/server/auth/jwt";
 
 export async function POST(req: NextRequest) {
   try {

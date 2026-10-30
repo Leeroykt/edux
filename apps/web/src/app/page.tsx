@@ -34,12 +34,15 @@ export default function RootDashboardPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [doc, usg, vp, eduDocs] = await Promise.all([
+        const [doc, usg, vp, dbDocs, eduDocs] = await Promise.all([
           apiClient.getDocument("doc_84719a"),
           apiClient.getUsage(),
           apiClient.getVoiceProfile(),
+          apiClient.getDocuments(),
           apiClient.getEduProDocuments(),
         ]);
+
+        const combinedDocs = [...dbDocs, ...eduDocs.filter((ed) => !dbDocs.some((d) => d.id === ed.id))];
 
         // Check if user uploaded a document in this session
         const cached =
@@ -54,7 +57,7 @@ export default function RootDashboardPage() {
               setDocumentMeta(parsed.meta);
               setUsage(usg);
               setVoiceProfile(vp);
-              setDocuments([parsed.meta, ...eduDocs]);
+              setDocuments([parsed.meta, ...combinedDocs]);
               return;
             }
           } catch (e) {
@@ -65,7 +68,7 @@ export default function RootDashboardPage() {
         setDocumentMeta(doc);
         setUsage(usg);
         setVoiceProfile(vp);
-        setDocuments(eduDocs);
+        setDocuments(combinedDocs);
       } catch (err) {
         console.error("Dashboard data error:", err);
       }

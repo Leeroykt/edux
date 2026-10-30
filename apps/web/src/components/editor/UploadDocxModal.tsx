@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import mammoth from "mammoth";
 import { DocumentMeta, DocumentParagraphNode, DocumentSentence, ScoreBand } from "@edux/schema";
+import { apiClient } from "../../services/api/apiClient";
 
 interface UploadDocxModalProps {
   isOpen: boolean;
@@ -143,6 +144,12 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
           JSON.stringify({ meta: newDocMeta, paragraphs: parsedParagraphs })
         );
       }
+
+      // Persist to backend database & AI detection pipeline asynchronously
+      apiClient.createDocument({
+        title: file.name,
+        paragraphs: parsedParagraphs,
+      }).catch((err) => console.warn("Failed to persist uploaded document to backend database:", err));
 
       setTimeout(() => {
         setIsProcessing(false);

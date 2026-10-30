@@ -22,7 +22,9 @@ import {
   ChevronDown,
   FolderOpen
 } from "lucide-react";
-import { UsageSummary } from "@edux/schema";
+import { UsageSummary, User } from "@edux/schema";
+import { AuthModal } from "./AuthModal";
+import { apiClient } from "../../services/api/apiClient";
 
 interface NavbarProps {
   documentTitle?: string;
@@ -47,6 +49,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  React.useEffect(() => {
+    const user = apiClient.getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
+    } else {
+      apiClient.getMe().then((res) => {
+        if (res && res.user) setCurrentUser(res.user);
+      });
+    }
+  }, []);
 
   const navLinks = [
     { href: "/", label: "Dashboard", icon: <Home className="w-4 h-4" /> },
@@ -150,18 +165,25 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         {/* User Profile Avatar with Plan Badge */}
-        <Link
-          href="/plans"
-          className="flex items-center gap-2 pl-1 select-none group"
-          title="Account & Plan Quota"
+        <button
+          onClick={() => setIsAuthModalOpen(true)}
+          className="flex items-center gap-2 pl-1 select-none group cursor-pointer"
+          title="Account, Session & Plan Quota"
         >
           <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-elite-600 to-teal-400 text-white flex items-center justify-center font-bold text-xs ring-2 ring-elite-100 dark:ring-slate-800 shadow-xs group-hover:scale-105 transition-transform">
-            AH
+            {currentUser?.name
+              ? currentUser.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase()
+              : "AH"}
           </div>
           <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-elite-50 dark:bg-elite-950 text-elite-700 dark:text-elite-300 border border-elite-200 dark:border-elite-800">
-            Individual
+            {currentUser?.planType === "edu_pro" ? "Edu Pro" : "Individual"}
           </span>
-        </Link>
+        </button>
 
         {/* Mobile Hamburger Button */}
         <button
@@ -199,6 +221,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           ))}
         </div>
       )}
+
+      {/* Account & Session Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={(u) => setCurrentUser(u)}
+      />
     </header>
   );
 };
