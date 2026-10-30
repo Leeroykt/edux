@@ -32,21 +32,25 @@ export class EduxApiClient {
 
   constructor() {
     if (typeof window !== "undefined") {
-      this.token = localStorage.getItem("edux_token") || null;
-      const cachedUser = localStorage.getItem("edux_user");
-      if (cachedUser) {
-        try {
+      try {
+        this.token = localStorage.getItem("edux_token") || null;
+        const cachedUser = localStorage.getItem("edux_user");
+        if (cachedUser) {
           this.currentUser = JSON.parse(cachedUser);
-        } catch {
-          // ignore parse error
         }
+      } catch {
+        // ignore storage access errors
       }
     }
   }
 
   public getToken(): string | null {
     if (!this.token && typeof window !== "undefined") {
-      this.token = localStorage.getItem("edux_token") || null;
+      try {
+        this.token = localStorage.getItem("edux_token") || null;
+      } catch {
+        // ignore
+      }
     }
     return this.token;
   }
@@ -54,17 +58,21 @@ export class EduxApiClient {
   public setToken(token: string | null, user?: User | null) {
     this.token = token;
     if (typeof window !== "undefined") {
-      if (token) {
-        localStorage.setItem("edux_token", token);
-      } else {
-        localStorage.removeItem("edux_token");
-      }
-      if (user) {
-        this.currentUser = user;
-        localStorage.setItem("edux_user", JSON.stringify(user));
-      } else if (token === null) {
-        this.currentUser = null;
-        localStorage.removeItem("edux_user");
+      try {
+        if (token) {
+          localStorage.setItem("edux_token", token);
+        } else {
+          localStorage.removeItem("edux_token");
+        }
+        if (user) {
+          this.currentUser = user;
+          localStorage.setItem("edux_user", JSON.stringify(user));
+        } else if (token === null) {
+          this.currentUser = null;
+          localStorage.removeItem("edux_user");
+        }
+      } catch {
+        // ignore
       }
     }
   }
@@ -74,6 +82,11 @@ export class EduxApiClient {
   }
 
   private async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
+    if (typeof window === "undefined") {
+      // Avoid relative URL SSR fetch errors on Node
+      return new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+
     const headers = new Headers(options.headers || {});
     if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");

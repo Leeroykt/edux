@@ -64,7 +64,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   const navLinks = [
-    { href: "/", label: "Dashboard", icon: <Home className="w-4 h-4" /> },
+    { href: "/dashboard", label: "Dashboard", icon: <Home className="w-4 h-4" /> },
     { href: "/edit", label: "Word Editor", icon: <FileText className="w-4 h-4" /> },
     { href: "/report", label: "Similarity", icon: <ShieldCheck className="w-4 h-4" />, badge: "16%" },
     { href: "/edupro", label: "Edu Pro Board", icon: <FolderKanban className="w-4 h-4" />, badge: "Pro" },
@@ -120,7 +120,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </>
           ) : (
             <div className="text-xs font-bold text-slate-600 dark:text-slate-300 hidden sm:block">
-              {pathname === "/" && "Overview & Document Manager"}
+              {(pathname === "/" || pathname === "/dashboard") && "Overview & Document Manager"}
               {pathname === "/report" && "Turnitin-Style Plagiarism Report"}
               {pathname === "/edupro" && "Institutional Review Board"}
               {pathname === "/plans" && "Subscription & Plan Limits"}

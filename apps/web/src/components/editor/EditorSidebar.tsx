@@ -92,7 +92,7 @@ export const EditorSidebar: React.FC<EditorSidebarProps> = ({
 
   const mainNavItems = [
     {
-      href: "/",
+      href: "/dashboard",
       label: "User Dashboard",
       icon: <Home className="w-4 h-4" />,
       badge: `${paperCount}`,
