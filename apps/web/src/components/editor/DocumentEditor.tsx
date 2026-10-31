@@ -233,6 +233,119 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     setWordSuggestions(null);
   };
 
+  const renderSentenceSpan = (sentence: DocumentSentence) => {
+    const isSelected = selectedSentenceId === sentence.id;
+    const isHovered = hoveredSentenceId === sentence.id;
+    const candidateSuggestions = suggestionsMap[sentence.id];
+    const topCandidate = candidateSuggestions?.[0];
+
+    const isAiFlagged =
+      isHumanisedScanned &&
+      sentence.score &&
+      sentence.score.score >= aiThreshold &&
+      !sentence.locked;
+
+    // Humanised Preview Mode: shows green human rewrite
+    if (humaniseViewMode === "humanised_preview" && isAiFlagged && topCandidate) {
+      return (
+        <span
+          key={sentence.id}
+          onClick={() => {
+            const sel = window.getSelection();
+            if (!sel || sel.toString().trim().length === 0) {
+              onSelectSentence(sentence);
+            }
+          }}
+          className="inline-block mx-0.5 my-0.5 px-1 py-0.5 rounded-xs humanised-preview-span text-emerald-950 dark:text-emerald-100 transition-all cursor-pointer group"
+          title="Click to view alternate rewrites"
+        >
+          <span>{topCandidate.text}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onApplyQuickRewrite(sentence.id, topCandidate);
+            }}
+            className="ml-1.5 px-2 py-0.5 rounded text-[10px] font-sans font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-all active:scale-95 inline-flex items-center gap-0.5 cursor-pointer"
+          >
+            ✓ Apply
+          </button>
+        </span>
+      );
+    }
+
+    // Clean Mode: pure text without AI flag colors
+    if (humaniseViewMode === "clean") {
+      return (
+        <span
+          key={sentence.id}
+          onClick={() => onSelectSentence(sentence)}
+          className={`cursor-text ${isSelected ? "ring-2 ring-elite-500 bg-elite-50 dark:bg-elite-950/70 rounded-xs" : ""}`}
+        >
+          {sentence.formattedHtml ? (
+            <span dangerouslySetInnerHTML={{ __html: sentence.formattedHtml }} />
+          ) : (
+            sentence.text
+          )}{" "}
+        </span>
+      );
+    }
+
+    // Original AI Flagged Mode
+    let spanClasses = "transition-all duration-150 inline relative rounded-xs px-0.5 my-0.5 cursor-pointer ";
+
+    if (isSelected) {
+      spanClasses += " ring-2 ring-elite-500 bg-elite-50 dark:bg-elite-950/70 ";
+    } else if (isHovered) {
+      spanClasses += " bg-slate-100 dark:bg-slate-800 ";
+    }
+
+    if (isAiFlagged) {
+      if (sentence.score?.band === "likely_machine") {
+        spanClasses += " ai-flagged-machine text-slate-900 dark:text-slate-100 ";
+      } else {
+        spanClasses += " ai-flagged-uncertain ";
+      }
+    }
+
+    return (
+      <span
+        key={sentence.id}
+        onClick={() => {
+          const sel = window.getSelection();
+          if (!sel || sel.toString().trim().length === 0) {
+            onSelectSentence(sentence);
+          }
+        }}
+        onMouseEnter={() => setHoveredSentenceId(sentence.id)}
+        onMouseLeave={() => setHoveredSentenceId(null)}
+        className={spanClasses}
+        title={
+          isAiFlagged
+            ? `${Math.round((sentence.score?.score || 0) * 100)}% AI likelihood • Click to inspect & humanize`
+            : undefined
+        }
+      >
+        {sentence.formattedHtml ? (
+          <span dangerouslySetInnerHTML={{ __html: sentence.formattedHtml }} />
+        ) : (
+          sentence.text
+        )}{" "}
+        {sentence.locked && (
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleLock(sentence.id);
+            }}
+            className="inline-flex items-center text-[10px] bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded text-slate-600 dark:text-slate-300 ml-1 font-sans cursor-pointer hover:bg-rose-100"
+            title="Locked sentence (protected from rewrites)"
+          >
+            <Lock className="w-2.5 h-2.5 mr-0.5" /> Locked
+          </span>
+        )}
+      </span>
+    );
+  };
+
   const flaggedSentences = paragraphs
     .flatMap((p) => p.sentences)
     .filter((s) => s.score && s.score.score >= aiThreshold && !s.locked);
@@ -251,10 +364,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         (acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length,
         0
       );
-      // Standard realistic academic A4 page: ~520 words or 5-7 paragraphs per sheet
+      // Academic A4 sheet standard capacity: ~650 words or 8+ paragraphs before natural break
       if (
-        currentPageItems.length >= 3 &&
-        (currentWords + pWordCount > 520 || currentPageItems.length >= 6)
+        currentPageItems.length >= 4 &&
+        (currentWords + pWordCount > 650 || currentPageItems.length >= 9)
       ) {
         result.push({
           pageNumber: result.length + 1,
@@ -483,8 +596,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         {pages.map((page) => (
           <article
             key={page.pageNumber}
-            contentEditable={true}
-            suppressContentEditableWarning={true}
             className={`word-a4-page ${
               paperTheme === "dark" ? "word-a4-page-dark" : ""
             } leading-relaxed text-[16px] flex flex-col justify-between`}
@@ -494,7 +605,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           >
             {/* Running Page Header */}
             <div
-              contentEditable={false}
               className="text-[11px] font-sans text-slate-400 border-b border-slate-100 dark:border-slate-800 pb-3 mb-8 flex items-center justify-between uppercase tracking-wider select-none shrink-0"
             >
               <span className="flex items-center gap-1.5">
@@ -507,114 +617,104 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </div>
 
             {/* Page Paragraphs & Sentences */}
-            <div className="space-y-6 flex-1 min-h-[700px]">
+            <div className="space-y-4 flex-1 min-h-[700px]">
               {page.items.map(({ p, originalIdx }) => {
-                const isHeading = p.type === "heading";
+                // 1. Heading Elements H1 - H6
+                if (p.type === "heading") {
+                  const level = p.level || (p.styleName?.includes("1") ? 1 : p.styleName?.includes("2") ? 2 : 3);
+                  return (
+                    <div key={p.id} className="my-3">
+                      <h2
+                        className={`font-bold tracking-tight text-slate-900 dark:text-white font-raleway ${
+                          level === 1
+                            ? "text-2xl sm:text-3xl mt-6 mb-3 border-b border-slate-200 dark:border-slate-800 pb-2"
+                            : level === 2
+                            ? "text-xl sm:text-2xl mt-5 mb-2"
+                            : "text-lg font-bold mt-4 mb-1.5"
+                        }`}
+                      >
+                        {p.sentences.map(renderSentenceSpan)}
+                      </h2>
+                    </div>
+                  );
+                }
+
+                // 2. Table Elements
+                if (p.type === "table") {
+                  return (
+                    <div key={p.id} className="overflow-x-auto my-5 select-none">
+                      <table className="word-table w-full">
+                        {p.tableData && p.tableData.length > 0 ? (
+                          <tbody>
+                            {p.tableData.map((row, rIdx) => (
+                              <tr key={rIdx} className={rIdx === 0 ? "bg-slate-100/70 dark:bg-slate-800/80 font-bold" : ""}>
+                                {row.map((cell, cIdx) => (
+                                  <td key={cIdx} className="border border-slate-300 dark:border-slate-700 px-3.5 py-2 text-xs sm:text-sm">
+                                    {cell}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        ) : p.rawHtml ? (
+                          <div dangerouslySetInnerHTML={{ __html: p.rawHtml }} />
+                        ) : null}
+                      </table>
+                    </div>
+                  );
+                }
+
+                // 3. Bullet & Numbered List Items
+                if (p.type === "list_item") {
+                  return (
+                    <div key={p.id} className="flex items-start gap-2.5 my-1.5 ml-4 text-justify">
+                      <span className="text-slate-400 dark:text-slate-500 font-bold select-none mt-0.5 text-xs">
+                        {p.listType === "number" ? `${p.orderNo || 1}.` : "•"}
+                      </span>
+                      <div className="flex-1">
+                        {p.sentences.map(renderSentenceSpan)}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // 4. Blockquotes
+                if (p.type === "blockquote") {
+                  return (
+                    <blockquote
+                      key={p.id}
+                      className="border-l-4 border-elite-500 pl-4 py-1.5 my-4 italic text-slate-700 dark:text-slate-300 bg-slate-50/70 dark:bg-slate-900/40 rounded-r-xl"
+                    >
+                      {p.sentences.map(renderSentenceSpan)}
+                    </blockquote>
+                  );
+                }
+
+                // 5. Embedded Figures & Images
+                if (p.type === "image") {
+                  return (
+                    <figure key={p.id} className="my-6 text-center">
+                      {p.imageUrl && (
+                        <img
+                          src={p.imageUrl}
+                          alt={p.imageCaption || "Document figure"}
+                          className="max-h-96 mx-auto rounded-xl shadow-md border border-slate-200 dark:border-slate-800"
+                        />
+                      )}
+                      {p.imageCaption && (
+                        <figcaption className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium">
+                          {p.imageCaption}
+                        </figcaption>
+                      )}
+                    </figure>
+                  );
+                }
+
+                // 6. Standard Academic Paragraph
                 return (
                   <div key={p.id} className="space-y-3">
-                    <div
-                      className={
-                        isHeading
-                          ? "font-bold text-slate-900 dark:text-white text-xl tracking-tight mt-6 mb-3"
-                          : "text-justify"
-                      }
-                    >
-                      {p.sentences.map((sentence) => {
-                        const isSelected = selectedSentenceId === sentence.id;
-                        const isHovered = hoveredSentenceId === sentence.id;
-                        const candidateSuggestions = suggestionsMap[sentence.id];
-                        const topCandidate = candidateSuggestions?.[0];
-
-                        const isAiFlagged =
-                          isHumanisedScanned &&
-                          sentence.score &&
-                          sentence.score.score >= aiThreshold &&
-                          !sentence.locked;
-
-                        // Humanised Preview Mode: shows green human rewrite
-                        if (
-                          humaniseViewMode === "humanised_preview" &&
-                          isAiFlagged &&
-                          topCandidate
-                        ) {
-                          return (
-                            <span
-                              key={sentence.id}
-                              contentEditable={false}
-                              onClick={() => {
-                                const sel = window.getSelection();
-                                if (!sel || sel.toString().trim().length === 0) {
-                                  onSelectSentence(sentence);
-                                }
-                              }}
-                              className="inline-block mx-0.5 my-1 p-1 rounded-xs humanised-preview-span text-emerald-950 dark:text-emerald-100 transition-all cursor-pointer group"
-                              title="Click to view alternate rewrites"
-                            >
-                              <span>{topCandidate.text}</span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onApplyQuickRewrite(sentence.id, topCandidate);
-                                }}
-                                className="ml-1.5 px-2 py-0.5 rounded text-[10px] font-sans font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-all active:scale-95 inline-flex items-center gap-0.5"
-                              >
-                                ✓ Apply
-                              </button>
-                            </span>
-                          );
-                        }
-
-                        // Original AI Flagged Mode
-                        let spanClasses =
-                          "transition-all duration-150 inline relative rounded-xs px-0.5 my-0.5 cursor-text ";
-
-                        if (isSelected) {
-                          spanClasses +=
-                            " ring-2 ring-elite-500 bg-elite-50 dark:bg-elite-950/70 ";
-                        } else if (isHovered) {
-                          spanClasses += " bg-slate-100 dark:bg-slate-800 ";
-                        }
-
-                        if (humaniseViewMode === "original_flags" && isAiFlagged) {
-                          if (sentence.score?.band === "likely_machine") {
-                            spanClasses +=
-                              " ai-flagged-machine text-slate-900 dark:text-slate-100 ";
-                          } else {
-                            spanClasses += " ai-flagged-uncertain ";
-                          }
-                        }
-
-                        return (
-                          <span
-                            key={sentence.id}
-                            onClick={() => {
-                              // Only select sentence drawer if user didn't select words
-                              const sel = window.getSelection();
-                              if (!sel || sel.toString().trim().length === 0) {
-                                onSelectSentence(sentence);
-                              }
-                            }}
-                            onMouseEnter={() => setHoveredSentenceId(sentence.id)}
-                            onMouseLeave={() => setHoveredSentenceId(null)}
-                            className={spanClasses}
-                          >
-                            {sentence.text}{" "}
-                            {sentence.locked && (
-                              <span
-                                contentEditable={false}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onToggleLock(sentence.id);
-                                }}
-                                className="inline-flex items-center text-[10px] bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded text-slate-600 dark:text-slate-300 ml-1 font-sans cursor-pointer hover:bg-rose-100"
-                                title="Locked sentence"
-                              >
-                                <Lock className="w-2.5 h-2.5 mr-0.5" /> Locked
-                              </span>
-                            )}
-                          </span>
-                        );
-                      })}
+                    <div className="text-justify leading-relaxed">
+                      {p.sentences.map(renderSentenceSpan)}
                     </div>
 
                     {/* Render Inserted Elements (Academic Figures & Tables) */}

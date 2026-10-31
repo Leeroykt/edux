@@ -168,6 +168,7 @@ export default function DashboardPage() {
               documents={documents}
               usage={usage}
               voiceProfile={voiceProfile}
+              currentUser={currentUser}
               onOpenUploadModal={() => setIsUploadModalOpen(true)}
             />
           )}
@@ -199,6 +200,7 @@ export default function DashboardPage() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         documentTitle={documentMeta?.title || "Academic Manuscript.docx"}
+        paragraphs={[]}
       />
     </div>
   );

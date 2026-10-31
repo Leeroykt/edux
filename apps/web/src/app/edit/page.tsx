@@ -172,12 +172,88 @@ export default function WordEditorPage() {
           }
         }
 
-        // Default mock manuscript
+        // Check if there is text imported from the landing page
+        const importedText =
+          typeof window !== "undefined"
+            ? window.sessionStorage.getItem("editor_imported_text")
+            : null;
+
+        if (importedText) {
+          window.sessionStorage.removeItem("editor_imported_text");
+          const cleanImported = importedText.trim();
+          const sentences = cleanImported.split(/(?<=[.!?])\s+/).filter(Boolean).map((text, idx) => ({
+            id: `s_import_${idx + 1}`,
+            nodeId: "p_import_1",
+            paragraphIndex: 0,
+            text,
+            charStart: 0,
+            charEnd: text.length,
+            locked: false,
+            ignored: false,
+            score: {
+              sentenceId: `s_import_${idx + 1}`,
+              score: 0.06,
+              band: "likely_human" as any,
+              confidence: 0.96,
+              reasons: [],
+            },
+          }));
+
+          const importedDoc: DocumentMeta = {
+            id: `doc_import_${Date.now()}`,
+            ownerId: "user",
+            title: "Humanized Paper Draft.docx",
+            status: "ready",
+            stage: "uploaded",
+            currentVersionId: "v_1",
+            ownerDeclaredOwn: true,
+            wordCount: cleanImported.split(/\s+/).filter(Boolean).length,
+            pageCount: 1,
+            overallAiScore: 0.06,
+            similarityScore: 4,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          const importedParagraphs: DocumentParagraphNode[] = [
+            {
+              id: "p_import_1",
+              documentId: importedDoc.id,
+              type: "paragraph",
+              styleName: "Body Text",
+              sentences,
+              orderNo: 1,
+            },
+          ];
+
+          setDocumentMeta(importedDoc);
+          setParagraphs(importedParagraphs);
+          setAllDocuments([importedDoc, ...libraryDocs]);
+          setInsertedElements([]);
+          return;
+        }
+
+        // If user has personal uploaded documents in DB, load their latest document
+        const userUploadedDocs = dbDocs.filter((d) => d.id !== "doc_84719a" && !d.id.startsWith("mock"));
+        if (userUploadedDocs.length > 0) {
+          const firstUserDoc = userUploadedDocs[0];
+          try {
+            const userStruct = await apiClient.getDocumentStructure(firstUserDoc.id);
+            setDocumentMeta(firstUserDoc);
+            setParagraphs(userStruct);
+            setAllDocuments(libraryDocs);
+            setInsertedElements([]);
+            return;
+          } catch {}
+        }
+
+        // Default initial academic sample
         setDocumentMeta(doc);
         setParagraphs(struct);
         setSimilarityReport(rep);
         setUsage(usg);
         setAllDocuments(libraryDocs);
+        setInsertedElements([]);
       } catch (err) {
         console.error("Editor init error:", err);
       }
@@ -711,6 +787,7 @@ export default function WordEditorPage() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         documentTitle={documentMeta?.title || "Academic Manuscript.docx"}
+        paragraphs={paragraphs}
       />
 
       <DocumentPickerModal

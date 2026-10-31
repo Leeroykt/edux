@@ -66,7 +66,7 @@ export interface DbDocumentNode {
   id: string;
   documentId: string;
   versionId: string;
-  type: 'paragraph' | 'heading' | 'list_item' | 'table_cell';
+  type: 'paragraph' | 'heading' | 'list_item' | 'table_cell' | 'table' | 'blockquote' | 'image';
   styleName?: string;
   orderNo: number;
   xmlPath?: string;

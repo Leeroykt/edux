@@ -1,16 +1,20 @@
 import React, { useState } from "react";
 import { X, Download, CheckCircle2, ShieldCheck, FileCheck, FileCode, Check } from "lucide-react";
+import { DocumentParagraphNode } from "@edux/schema";
+import { downloadDocxFile } from "../../services/docx/docxExport";
 
 interface FidelityReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   documentTitle: string;
+  paragraphs?: DocumentParagraphNode[];
 }
 
 export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
   isOpen,
   onClose,
   documentTitle,
+  paragraphs = [],
 }) => {
   const [exportMode, setExportMode] = useState<"clean" | "tracked">("clean");
   const [isExporting, setIsExporting] = useState(false);
@@ -18,16 +22,21 @@ export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     setIsExporting(true);
-    setTimeout(() => {
+    try {
+      await downloadDocxFile(documentTitle, paragraphs, { exportMode });
       setIsExporting(false);
       setExportComplete(true);
       setTimeout(() => {
         setExportComplete(false);
         onClose();
-      }, 1500);
-    }, 1200);
+      }, 1200);
+    } catch (err) {
+      console.error("Export .docx error:", err);
+      setIsExporting(false);
+      alert("Failed to export Word document. Please try again.");
+    }
   };
 
   return (

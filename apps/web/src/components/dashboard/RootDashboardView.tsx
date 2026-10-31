@@ -12,7 +12,7 @@ import {
   Search,
   ChevronRight
 } from "lucide-react";
-import { DocumentMeta, UsageSummary, VoiceProfile } from "@edux/schema";
+import { DocumentMeta, UsageSummary, VoiceProfile, User } from "@edux/schema";
 import { BatchOperationsModal, BatchModalMode } from "./BatchOperationsModal";
 
 interface RootDashboardViewProps {
@@ -20,6 +20,7 @@ interface RootDashboardViewProps {
   documents: DocumentMeta[];
   usage: UsageSummary;
   voiceProfile: VoiceProfile;
+  currentUser?: User | null;
   onOpenUploadModal: () => void;
 }
 
@@ -28,6 +29,7 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
   documents,
   usage,
   voiceProfile,
+  currentUser,
   onOpenUploadModal,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -35,12 +37,15 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [batchModalMode, setBatchModalMode] = useState<BatchModalMode | null>(null);
 
-  // Real papers only - no hardcoded mock papers
+  // Real papers only - no hardcoded mock papers or empty placeholder
   const allPapers: DocumentMeta[] = (documents && documents.length > 0)
-    ? documents
-    : (lastDocument && lastDocument.id !== "doc_84719a" && !lastDocument.id.startsWith("mock"))
+    ? documents.filter((d) => d.id !== "doc_empty" && d.id !== "doc_84719a" && !d.id.startsWith("mock"))
+    : (lastDocument && lastDocument.id !== "doc_84719a" && lastDocument.id !== "doc_empty" && !lastDocument.id.startsWith("mock"))
     ? [lastDocument]
     : [];
+
+  const hasRealPapers = allPapers.length > 0;
+  const activeDoc = hasRealPapers ? allPapers[0] : null;
 
   // Filtering
   const filteredPapers = allPapers.filter((doc) => {
@@ -75,22 +80,22 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white font-raleway">
                 Academic Author & Integrity Workspace
               </h1>
               <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-elite-100 text-elite-700 dark:bg-elite-950 dark:text-elite-300 border border-elite-200 dark:border-elite-800">
-                Scholar Pro
+                {currentUser?.planType === "edu_pro" ? "Edu Pro" : "Individual"}
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Welcome back, <strong className="text-slate-800 dark:text-slate-200 font-bold">Dr. Alex Hawthorne</strong> • University of Oxford • Dept of Computer Science & Linguistics
+              Welcome back, <strong className="text-slate-800 dark:text-slate-200 font-bold">{currentUser?.name || "Academic Researcher"}</strong> • {currentUser?.email || "Scholar Portal"}
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               onClick={onOpenUploadModal}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-xs font-bold shadow-md shadow-elite-600/20 active:scale-95 transition-all"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-xs font-bold shadow-md shadow-elite-600/20 active:scale-95 transition-all cursor-pointer"
             >
               <UploadCloud className="w-4 h-4" />
               <span>Upload Real Document (.docx)</span>
@@ -98,68 +103,104 @@ export const RootDashboardView: React.FC<RootDashboardViewProps> = ({
           </div>
         </div>
 
-        {/* 2. Hero Card: "Continue Editing" Last Manuscript */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-elite-900 via-indigo-900 to-slate-900 border border-elite-700/40 p-5 sm:p-6 text-white shadow-xl">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-elite-500/20 to-teal-400/10 blur-3xl pointer-events-none rounded-full" />
+        {/* 2. Hero Card: "Continue Editing" (if user has active paper) OR "Get Started" (if empty) */}
+        {hasRealPapers && activeDoc ? (
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-elite-900 via-indigo-900 to-slate-900 border border-elite-700/40 p-5 sm:p-6 text-white shadow-xl">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-elite-500/20 to-teal-400/10 blur-3xl pointer-events-none rounded-full" />
 
-          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div className="space-y-3 max-w-3xl">
-              <div className="flex items-center gap-2 text-xs font-bold text-elite-200 uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Continue Editing • Last Active Manuscript</span>
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div className="space-y-3 max-w-3xl">
+                <div className="flex items-center gap-2 text-xs font-bold text-elite-200 uppercase tracking-wider">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Continue Editing • Last Active Manuscript</span>
+                </div>
+
+                <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white line-clamp-1 font-raleway">
+                  {activeDoc.title}
+                </h2>
+
+                {/* Document Key Metas */}
+                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs text-slate-300 font-medium pt-1">
+                  <span className="flex items-center gap-1.5 bg-white/10 px-2.5 py-1 rounded-lg">
+                    <FileText className="w-3.5 h-3.5 text-elite-300" />
+                    {activeDoc.wordCount.toLocaleString()} words ({activeDoc.pageCount} pages)
+                  </span>
+                  <span className="flex items-center gap-1.5 bg-rose-500/20 border border-rose-400/30 text-rose-200 px-2.5 py-1 rounded-lg font-bold">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Turnitin Calibrated
+                  </span>
+                  <span className="flex items-center gap-1.5 bg-blue-500/20 border border-blue-400/30 text-blue-200 px-2.5 py-1 rounded-lg font-bold">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    {activeDoc.similarityScore || 0}% Similarity
+                  </span>
+                  <span className="flex items-center gap-1.5 text-slate-400 text-[11px]">
+                    <Clock className="w-3 h-3" /> Updated {new Date(activeDoc.updatedAt).toLocaleDateString()}
+                  </span>
+                </div>
               </div>
 
-              <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white line-clamp-1">
-                {lastDocument.title}
-              </h2>
-
-              {/* Document Key Metas */}
-              <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs text-slate-300 font-medium pt-1">
-                <span className="flex items-center gap-1.5 bg-white/10 px-2.5 py-1 rounded-lg">
-                  <FileText className="w-3.5 h-3.5 text-elite-300" />
-                  {lastDocument.wordCount.toLocaleString()} words ({lastDocument.pageCount} pages)
-                </span>
-                <span className="flex items-center gap-1.5 bg-rose-500/20 border border-rose-400/30 text-rose-200 px-2.5 py-1 rounded-lg font-bold">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  14 AI Flagged
-                </span>
-                <span className="flex items-center gap-1.5 bg-blue-500/20 border border-blue-400/30 text-blue-200 px-2.5 py-1 rounded-lg font-bold">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  {lastDocument.similarityScore}% Similarity
-                </span>
-                <span className="flex items-center gap-1.5 text-slate-400 text-[11px]">
-                  <Clock className="w-3 h-3" /> Modified 12m ago
-                </span>
+              {/* Action Button */}
+              <div className="flex flex-col sm:flex-row lg:flex-col items-stretch gap-2.5 shrink-0">
+                <Link
+                  href="/edit"
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-elite-500 to-indigo-500 hover:from-elite-400 hover:to-indigo-400 text-white font-bold text-xs sm:text-sm shadow-lg shadow-elite-600/30 active:scale-95 transition-all text-center"
+                >
+                  <span>Resume in Word Canvas</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/report"
+                    className="flex-1 text-center py-2 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-semibold border border-white/10 transition-colors"
+                  >
+                    Similarity Report
+                  </Link>
+                  <Link
+                    href="/plans"
+                    className="flex-1 text-center py-2 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-semibold border border-white/10 transition-colors"
+                  >
+                    Plan Limits
+                  </Link>
+                </div>
               </div>
             </div>
+          </div>
+        ) : (
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-elite-950 via-slate-900 to-indigo-950 border border-elite-800/60 p-6 sm:p-8 text-white shadow-xl">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-elite-600/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="space-y-2.5 max-w-2xl">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-elite-600/20 text-xs font-bold text-elite-300 border border-elite-500/30">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Lossless Academic Integrity Engine</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white font-raleway">
+                  Upload your research manuscript to begin
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  Import your actual Word .docx file. eduX parses paragraphs, tables, equations, and references with zero formatting loss, providing Turnitin-grade similarity analysis and precision humanizing.
+                </p>
+              </div>
 
-            {/* Big Action Button linking to /edit */}
-            <div className="flex flex-col sm:flex-row lg:flex-col items-stretch gap-2.5 shrink-0">
-              <Link
-                href="/edit"
-                className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-elite-500 to-indigo-500 hover:from-elite-400 hover:to-indigo-400 text-white font-bold text-xs sm:text-sm shadow-lg shadow-elite-600/30 active:scale-95 transition-all text-center"
-              >
-                <span>Resume in Word Canvas</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/report"
-                  className="flex-1 text-center py-2 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-semibold border border-white/10 transition-colors"
+              <div className="flex flex-col sm:flex-row gap-3 shrink-0">
+                <button
+                  onClick={onOpenUploadModal}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-elite-600 hover:bg-elite-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-elite-600/25 active:scale-95 transition-all cursor-pointer"
                 >
-                  Similarity Report
-                </Link>
+                  <UploadCloud className="w-4 h-4" />
+                  <span>Upload .docx File</span>
+                </button>
                 <Link
-                  href="/plans"
-                  className="flex-1 text-center py-2 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-semibold border border-white/10 transition-colors"
+                  href="/edit"
+                  className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs sm:text-sm border border-white/20 transition-all text-center"
                 >
-                  Plan Limits
+                  <FileText className="w-4 h-4" />
+                  <span>Open Word Editor</span>
                 </Link>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* "Manage Your Documents" Main Data Workspace */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden space-y-0">

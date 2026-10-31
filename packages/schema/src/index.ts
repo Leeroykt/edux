@@ -97,6 +97,7 @@ export interface DocumentSentence {
   nodeId: string;
   paragraphIndex: number;
   text: string;
+  formattedHtml?: string;
   charStart: number;
   charEnd: number;
   locked: boolean;
@@ -108,8 +109,15 @@ export interface DocumentSentence {
 export interface DocumentParagraphNode {
   id: string;
   documentId: string;
-  type: 'paragraph' | 'heading' | 'list_item' | 'table_cell';
+  type: 'paragraph' | 'heading' | 'list_item' | 'table_cell' | 'table' | 'blockquote' | 'image';
   styleName?: string;
+  level?: number;
+  listType?: 'bullet' | 'number';
+  rawHtml?: string;
+  htmlContent?: string;
+  tableData?: string[][];
+  imageUrl?: string;
+  imageCaption?: string;
   sentences: DocumentSentence[];
   orderNo: number;
 }

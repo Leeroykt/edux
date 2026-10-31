@@ -125,7 +125,7 @@ export class EduxApiClient {
     return data;
   }
 
-  async register(payload: { name: string; email: string; password: string; role?: string }): Promise<AuthResponse> {
+  async register(payload: { name: string; email: string; password: string; role?: string }): Promise<any> {
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -137,8 +137,8 @@ export class EduxApiClient {
       throw new Error(err.error?.message || "Registration failed.");
     }
 
-    const data: AuthResponse = await res.json();
-    this.setToken(data.accessToken, data.user);
+    const data = await res.json();
+    // Best practice: Do NOT set token on register. Require explicit login.
     return data;
   }
 

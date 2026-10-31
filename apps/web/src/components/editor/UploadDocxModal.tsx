@@ -52,7 +52,16 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
       if (file.name.endsWith(".docx")) {
         const arrayBuffer = await file.arrayBuffer();
         setStep(2); // Parsing OOXML with mammoth
-        const result = await mammoth.convertToHtml({ arrayBuffer });
+        const mammothOptions = {
+          convertImage: (mammoth as any).images?.imgElement((image: any) => {
+            return image.read("base64").then((imageBuffer: string) => {
+              return {
+                src: `data:${image.contentType};base64,${imageBuffer}`,
+              };
+            });
+          }),
+        };
+        const result = await mammoth.convertToHtml({ arrayBuffer }, mammothOptions);
         rawHtml = result.value;
       } else {
         // Plain text or markdown
@@ -74,6 +83,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
       const parsedParagraphs: DocumentParagraphNode[] = [];
       let totalWordCount = 0;
       let sentenceCounter = 1;
+      const docId = `doc_user_${Date.now()}`;
 
       // Fallback if no block elements were extracted
       if (blockElements.length === 0) {
@@ -85,7 +95,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
           totalWordCount += pText.split(/\s+/).filter(Boolean).length;
           parsedParagraphs.push({
             id: `p_real_${pIdx + 1}`,
-            documentId: `doc_user_${Date.now()}`,
+            documentId: docId,
             type: "paragraph",
             styleName: "Body Text",
             orderNo: pIdx + 1,
@@ -94,21 +104,140 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         });
       } else {
         blockElements.forEach((el, pIdx) => {
+          const tagName = el.tagName.toUpperCase();
+
+          // 1. Table Elements
+          if (tagName === "TABLE") {
+            const trs = Array.from(el.querySelectorAll("tr"));
+            const tableData: string[][] = trs.map((tr) =>
+              Array.from(tr.querySelectorAll("th, td")).map((c) => c.textContent?.trim() || "")
+            );
+
+            const cellTexts = tableData.flat().filter(Boolean);
+            const cellSentences: DocumentSentence[] = [];
+            cellTexts.forEach((ct, cIdx) => {
+              const s = splitIntoSentences(ct, pIdx, sentenceCounter + cIdx);
+              cellSentences.push(...s);
+            });
+            sentenceCounter += cellSentences.length;
+            totalWordCount += cellTexts.reduce((acc, t) => acc + t.split(/\s+/).filter(Boolean).length, 0);
+
+            parsedParagraphs.push({
+              id: `p_real_${pIdx + 1}`,
+              documentId: docId,
+              type: "table",
+              tableData,
+              rawHtml: el.outerHTML,
+              styleName: "Academic Table",
+              orderNo: pIdx + 1,
+              sentences: cellSentences,
+            });
+            return;
+          }
+
+          // 2. Bullet & Numbered Lists
+          if (tagName === "UL" || tagName === "OL") {
+            const lis = Array.from(el.querySelectorAll("li"));
+            lis.forEach((li, liIdx) => {
+              const liText = li.textContent?.trim() || "";
+              if (!liText) return;
+              const words = liText.split(/\s+/).filter(Boolean).length;
+              totalWordCount += words;
+
+              const sentences = splitIntoSentences(liText, pIdx + liIdx, sentenceCounter, li.innerHTML);
+              sentenceCounter += sentences.length;
+
+              parsedParagraphs.push({
+                id: `p_real_${pIdx + 1}_li_${liIdx + 1}`,
+                documentId: docId,
+                type: "list_item",
+                listType: tagName === "OL" ? "number" : "bullet",
+                htmlContent: li.innerHTML,
+                styleName: tagName === "OL" ? "Numbered List" : "Bullet List",
+                orderNo: pIdx + 1 + liIdx,
+                sentences,
+              });
+            });
+            return;
+          }
+
+          // 3. Headings H1 - H6
+          if (/^H[1-6]$/.test(tagName)) {
+            const level = parseInt(tagName.replace("H", "")) || 1;
+            const text = el.textContent?.trim() || "";
+            if (!text) return;
+            const words = text.split(/\s+/).filter(Boolean).length;
+            totalWordCount += words;
+
+            const sentences = splitIntoSentences(text, pIdx, sentenceCounter, el.innerHTML);
+            sentenceCounter += sentences.length;
+
+            parsedParagraphs.push({
+              id: `p_real_${pIdx + 1}`,
+              documentId: docId,
+              type: "heading",
+              level,
+              htmlContent: el.innerHTML,
+              styleName: `Heading ${level}`,
+              orderNo: pIdx + 1,
+              sentences,
+            });
+            return;
+          }
+
+          // 4. Blockquotes
+          if (tagName === "BLOCKQUOTE") {
+            const text = el.textContent?.trim() || "";
+            if (!text) return;
+            const words = text.split(/\s+/).filter(Boolean).length;
+            totalWordCount += words;
+
+            const sentences = splitIntoSentences(text, pIdx, sentenceCounter, el.innerHTML);
+            sentenceCounter += sentences.length;
+
+            parsedParagraphs.push({
+              id: `p_real_${pIdx + 1}`,
+              documentId: docId,
+              type: "blockquote",
+              htmlContent: el.innerHTML,
+              styleName: "Blockquote",
+              orderNo: pIdx + 1,
+              sentences,
+            });
+            return;
+          }
+
+          // 5. Embedded Figures & Images
+          const img = el.tagName === "IMG" ? el : el.querySelector("img");
+          if (img && !el.textContent?.trim()) {
+            parsedParagraphs.push({
+              id: `p_real_${pIdx + 1}`,
+              documentId: docId,
+              type: "image",
+              imageUrl: img.getAttribute("src") || "",
+              imageCaption: img.getAttribute("alt") || "Figure: Document illustration",
+              styleName: "Figure",
+              orderNo: pIdx + 1,
+              sentences: [],
+            });
+            return;
+          }
+
+          // 6. Standard Academic Paragraph
           const text = el.textContent?.trim() || "";
           if (!text) return;
-
-          const isHeading = /^H[1-6]$/i.test(el.tagName);
           const words = text.split(/\s+/).filter(Boolean).length;
           totalWordCount += words;
 
-          const sentences = splitIntoSentences(text, pIdx, sentenceCounter);
+          const sentences = splitIntoSentences(text, pIdx, sentenceCounter, el.innerHTML);
           sentenceCounter += sentences.length;
 
           parsedParagraphs.push({
             id: `p_real_${pIdx + 1}`,
-            documentId: `doc_user_${Date.now()}`,
-            type: isHeading ? "heading" : "paragraph",
-            styleName: isHeading ? `Heading ${el.tagName.replace("H", "")}` : "Body Text",
+            documentId: docId,
+            type: "paragraph",
+            htmlContent: el.innerHTML,
+            styleName: "Body Text",
             orderNo: pIdx + 1,
             sentences,
           });
@@ -165,7 +294,12 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
   };
 
   // Helper to split text into academic sentences with realistic AI scoring and protected abbreviations/headings
-  const splitIntoSentences = (text: string, pIdx: number, startCounter: number): DocumentSentence[] => {
+  const splitIntoSentences = (
+    text: string,
+    pIdx: number,
+    startCounter: number,
+    formattedHtml?: string
+  ): DocumentSentence[] => {
     const trimmed = text.trim();
     if (!trimmed) return [];
 
@@ -177,6 +311,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
           nodeId: `p_real_${pIdx + 1}`,
           paragraphIndex: pIdx,
           text: trimmed,
+          formattedHtml: formattedHtml || undefined,
           charStart: 0,
           charEnd: trimmed.length,
           locked: false,
@@ -232,6 +367,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         nodeId: `p_real_${pIdx + 1}`,
         paragraphIndex: pIdx,
         text: sText,
+        formattedHtml: finalSentences.length === 1 && formattedHtml ? formattedHtml : undefined,
         charStart,
         charEnd,
         locked: false,

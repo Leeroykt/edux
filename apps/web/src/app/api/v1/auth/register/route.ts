@@ -15,9 +15,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (password.length < 8) {
+    if (password.length < 6) {
       return NextResponse.json(
-        { error: { code: "WEAK_PASSWORD", message: "Password must be at least 8 characters long." } },
+        { error: { code: "WEAK_PASSWORD", message: "Password must be at least 6 characters long." } },
         { status: 422 }
       );
     }
@@ -42,24 +42,11 @@ export async function POST(req: NextRequest) {
       trustLevel: 1,
     });
 
-    const tokenPayload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      planType: user.planType,
-    };
-
-    const accessToken = await signAccessToken(tokenPayload);
-    const refreshToken = await signRefreshToken(tokenPayload);
-
-    await db.createSession(
-      user.id,
-      refreshToken,
-      new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-    );
-
-    const res = NextResponse.json(
+    // Best Practice: Do NOT set auth session cookie on registration.
+    // The user must explicitly sign in using their credentials.
+    return NextResponse.json(
       {
+        message: "Account created successfully.",
         user: {
           id: user.id,
           email: user.email,
@@ -67,20 +54,9 @@ export async function POST(req: NextRequest) {
           planType: user.planType,
           role: user.role,
         },
-        accessToken,
-        refreshToken,
       },
       { status: 201 }
     );
-
-    res.cookies.set("edux_access_token", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 7200, // 2 hours
-    });
-
-    return res;
   } catch (err: any) {
     console.error("Register error:", err);
     return NextResponse.json(
