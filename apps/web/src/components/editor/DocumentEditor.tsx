@@ -364,10 +364,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         (acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length,
         0
       );
-      // Academic A4 sheet capacity: ~420 words or 5 paragraphs before clean natural page break
+      // Academic A4 sheet capacity: ~520 words per page or explicit page break before section
       const shouldBreak =
         currentPageItems.length > 0 &&
-        (currentWords + pWordCount > 420 || currentPageItems.length >= 5 || pWordCount > 350);
+        (p.pageBreakBefore || (currentWords + pWordCount > 520 && pWordCount > 0));
 
       if (shouldBreak) {
         result.push({
@@ -593,46 +593,40 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       )}
 
       {/* Multi-Page Scrollable A4 Canvas Area */}
-      <div className="flex-1 overflow-y-auto py-8 px-2 sm:px-6 flex flex-col items-center gap-10">
+      <div className="flex-1 overflow-y-auto py-8 px-3 sm:px-6 lg:px-8 xl:px-10 flex flex-col items-center xl:items-start 2xl:items-center gap-8">
         {pages.map((page) => (
           <article
             key={page.pageNumber}
             className={`word-a4-page ${
               paperTheme === "dark" ? "word-a4-page-dark" : ""
-            } leading-relaxed text-[16px] flex flex-col`}
+            } leading-relaxed text-[16px] flex flex-col mx-auto xl:mx-0 2xl:mx-auto`}
             style={{
               fontFamily: fontFamily,
             }}
           >
-            {/* Running Page Header */}
-            <div
-              className="text-[11px] font-sans text-slate-400 border-b border-slate-100 dark:border-slate-800 pb-3 mb-8 flex items-center justify-between uppercase tracking-wider select-none shrink-0"
-            >
-              <span className="flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5 text-elite-600" />
-                Word Document (.docx) • Real-time Editing Active
-              </span>
-              <span className="font-bold text-slate-600 dark:text-slate-300">
-                Page {page.pageNumber} of {pages.length}
-              </span>
-            </div>
-
-            {/* Page Paragraphs & Sentences */}
+            {/* Page Paragraphs & Sentences (No artificial injected headers or footers) */}
             <div className="space-y-4 flex-1 min-h-[720px] pb-6">
               {page.items.map(({ p, originalIdx }) => {
+                // 0. Preserved Empty Line for Title Page & Chapter Layout
+                if (p.isEmptyLine) {
+                  return <div key={p.id} className="h-5 select-none" />;
+                }
+
                 // 1. Heading Elements H1 - H6
                 if (p.type === "heading") {
                   const level = p.level || (p.styleName?.includes("1") ? 1 : p.styleName?.includes("2") ? 2 : 3);
+                  const hAlign = p.alignment === "center" ? "text-center" : p.alignment === "right" ? "text-right" : "text-left";
                   return (
-                    <div key={p.id} className="my-3">
+                    <div key={p.id} className={`my-3 ${hAlign}`}>
                       <h2
-                        className={`font-bold tracking-tight text-slate-900 dark:text-white font-raleway ${
+                        className={`font-bold tracking-tight text-slate-900 dark:text-white ${
                           level === 1
                             ? "text-2xl sm:text-3xl mt-6 mb-3 border-b border-slate-200 dark:border-slate-800 pb-2"
                             : level === 2
                             ? "text-xl sm:text-2xl mt-5 mb-2"
                             : "text-lg font-bold mt-4 mb-1.5"
                         }`}
+                        style={{ fontFamily: "inherit" }}
                       >
                         {p.sentences.map(renderSentenceSpan)}
                       </h2>
@@ -691,15 +685,16 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   );
                 }
 
-                // 5. Embedded Figures & Images
+                // 5. Embedded Figures & Images (Natural Word rendering: no fake captions or card borders)
                 if (p.type === "image") {
+                  const imgAlign = p.alignment === "center" ? "text-center" : p.alignment === "right" ? "text-right" : "text-left";
                   return (
-                    <figure key={p.id} className="my-6 text-center">
+                    <figure key={p.id} className={`my-4 ${imgAlign}`}>
                       {p.imageUrl && (
                         <img
                           src={p.imageUrl}
-                          alt={p.imageCaption || "Document figure"}
-                          className="max-h-96 mx-auto rounded-xl shadow-md border border-slate-200 dark:border-slate-800"
+                          alt={p.imageCaption || ""}
+                          className="max-h-96 mx-auto object-contain select-none"
                         />
                       )}
                       {p.imageCaption && (
@@ -712,9 +707,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 }
 
                 // 6. Standard Academic Paragraph
+                const pAlign =
+                  p.alignment === "center"
+                    ? "text-center"
+                    : p.alignment === "right"
+                    ? "text-right"
+                    : p.alignment === "justify"
+                    ? "text-justify"
+                    : "text-left";
+
                 return (
-                  <div key={p.id} className="space-y-3">
-                    <div className="text-justify leading-relaxed">
+                  <div key={p.id} className={`space-y-3 ${pAlign}`}>
+                    <div className={`${pAlign} leading-relaxed`}>
                       {p.sentences.map(renderSentenceSpan)}
                     </div>
 
@@ -817,17 +821,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Running Page Footer */}
-            <div
-              contentEditable={false}
-              className="text-[11px] font-sans text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-4 mt-auto flex items-center justify-between select-none shrink-0"
-            >
-              <span>eduX Academic Integrity & Lossless Manuscript Engine</span>
-              <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">
-                Page {page.pageNumber}
-              </span>
             </div>
           </article>
         ))}

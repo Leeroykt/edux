@@ -61,7 +61,6 @@ h1, h2, h3, h4, h5, h6, .brand-font, .font-raleway {
   min-height: 1056px;
   height: auto;
   box-sizing: border-box;
-  margin: 0 auto;
   border-radius: 2px; /* Almost sharp corners as requested */
   border: 1px solid rgba(226, 232, 240, 0.85);
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 14px 28px -6px rgba(0, 0, 0, 0.06);

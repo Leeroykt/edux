@@ -310,7 +310,7 @@ export default function StealthLandingPage() {
             {/* Headline */}
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-950 dark:text-white leading-[1.1]">
               Humanize your <br />
-              <span className="bg-gradient-to-r from-elite-600 via-indigo-600 to-teal-500 bg-clip-text text-transparent">AI writing</span>
+              <span className="bg-gradient-to-r from-elite-600 via-sky-600 to-teal-500 bg-clip-text text-transparent">AI writing</span>
             </h1>
 
             {/* Subtitle */}

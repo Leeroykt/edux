@@ -54,6 +54,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         const arrayBuffer = await file.arrayBuffer();
         setStep(2); // Parsing OOXML with mammoth
         const mammothOptions = {
+          ignoreEmptyParagraphs: false,
           convertImage: (mammoth as any).images?.imgElement((image: any) => {
             return image.read("base64").then((imageBuffer: string) => {
               return {
@@ -61,6 +62,21 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
               };
             });
           }),
+          transformDocument: (element: any) => {
+            function tagNode(node: any) {
+              if (node.type === "paragraph" && node.alignment && node.children) {
+                node.children.unshift({
+                  type: "text",
+                  value: `<!--align:${node.alignment}-->`,
+                });
+              }
+              if (node.children) {
+                node.children.forEach(tagNode);
+              }
+            }
+            tagNode(element);
+            return element;
+          },
         };
         const result = await mammoth.convertToHtml({ arrayBuffer }, mammothOptions);
         rawHtml = result.value;
@@ -106,6 +122,20 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
       } else {
         blockElements.forEach((el, pIdx) => {
           const tagName = el.tagName.toUpperCase();
+
+          // Extract alignment if tagged
+          let alignment: 'left' | 'center' | 'right' | 'justify' | undefined = undefined;
+          const alignMatch = el.innerHTML.match(/&lt;!--align:([a-zA-Z]+)--&gt;|<!--align:([a-zA-Z]+)-->/);
+          if (alignMatch) {
+            const aVal = (alignMatch[1] || alignMatch[2] || "").toLowerCase();
+            if (aVal === "center") alignment = "center";
+            else if (aVal === "right") alignment = "right";
+            else if (aVal === "both" || aVal === "justify") alignment = "justify";
+            else if (aVal === "left") alignment = "left";
+          }
+          const cleanedInnerHtml = el.innerHTML.replace(/&lt;!--align:[a-zA-Z]+--&gt;|<!--align:[a-zA-Z]+-->/g, "");
+          const rawText = el.textContent || "";
+          const text = rawText.replace(/<!--align:[a-zA-Z]+-->/g, "").trim();
 
           // 1. Table Elements
           if (tagName === "TABLE") {
@@ -162,61 +192,18 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
             return;
           }
 
-          // 3. Headings H1 - H6
-          if (/^H[1-6]$/.test(tagName)) {
-            const level = parseInt(tagName.replace("H", "")) || 1;
-            const text = el.textContent?.trim() || "";
-            if (!text) return;
-            const words = text.split(/\s+/).filter(Boolean).length;
-            totalWordCount += words;
-
-            const sentences = splitIntoSentences(text, pIdx, sentenceCounter, el.innerHTML);
-            sentenceCounter += sentences.length;
-
-            parsedParagraphs.push({
-              id: `p_real_${pIdx + 1}`,
-              documentId: docId,
-              type: "heading",
-              level,
-              htmlContent: el.innerHTML,
-              styleName: `Heading ${level}`,
-              orderNo: pIdx + 1,
-              sentences,
-            });
-            return;
-          }
-
-          // 4. Blockquotes
-          if (tagName === "BLOCKQUOTE") {
-            const text = el.textContent?.trim() || "";
-            if (!text) return;
-            const words = text.split(/\s+/).filter(Boolean).length;
-            totalWordCount += words;
-
-            const sentences = splitIntoSentences(text, pIdx, sentenceCounter, el.innerHTML);
-            sentenceCounter += sentences.length;
-
-            parsedParagraphs.push({
-              id: `p_real_${pIdx + 1}`,
-              documentId: docId,
-              type: "blockquote",
-              htmlContent: el.innerHTML,
-              styleName: "Blockquote",
-              orderNo: pIdx + 1,
-              sentences,
-            });
-            return;
-          }
-
-          // 5. Embedded Figures & Images
+          // 3. Embedded Figures & Images
           const img = el.tagName === "IMG" ? el : el.querySelector("img");
-          if (img && !el.textContent?.trim()) {
+          if (img && !text) {
+            const alt = img.getAttribute("alt") || "";
+            const hasRealCaption = alt.trim().length > 0 && !alt.toLowerCase().includes("document illustration") && !alt.toLowerCase().includes("figure:");
             parsedParagraphs.push({
               id: `p_real_${pIdx + 1}`,
               documentId: docId,
               type: "image",
               imageUrl: img.getAttribute("src") || "",
-              imageCaption: img.getAttribute("alt") || "Figure: Document illustration",
+              imageCaption: hasRealCaption ? alt : undefined,
+              alignment: alignment || "center",
               styleName: "Figure",
               orderNo: pIdx + 1,
               sentences: [],
@@ -224,21 +211,97 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
             return;
           }
 
-          // 6. Standard Academic Paragraph
-          const text = el.textContent?.trim() || "";
-          if (!text) return;
+          // 4. Empty Paragraphs (Preserves vertical spacing on title pages and between sections)
+          if (!text && !el.querySelector("img, table, svg")) {
+            parsedParagraphs.push({
+              id: `p_real_${pIdx + 1}`,
+              documentId: docId,
+              type: "paragraph",
+              styleName: "Empty Line",
+              isEmptyLine: true,
+              orderNo: pIdx + 1,
+              sentences: [],
+            });
+            return;
+          }
+
+          // Check if this paragraph represents a major section heading or title
+          const isSectionHeading = /^(abstract|declaration|approval|acknowledgements|table of contents|chapter\s+\d+|references|bibliography)\b/i.test(text);
+          // Auto-center cover page lines if near the start of the manuscript
+          const isTitlePageP = pIdx < 18 && (
+            text === "BY" ||
+            text.includes("MUFUKA") ||
+            text.includes("UNIVERSITY") ||
+            text.includes("SECMAS") ||
+            text.includes("Submitted in partial fulfilment") ||
+            text.includes("BSc Honours") ||
+            text.includes("Department of") ||
+            text.includes("Faculty of")
+          );
+
+          const finalAlignment = isTitlePageP || isSectionHeading
+            ? (alignment || "center")
+            : (alignment || (text.length > 100 ? "justify" : "left"));
+
+          // 5. Headings H1 - H6
+          if (/^H[1-6]$/.test(tagName) || isSectionHeading) {
+            const level = /^H[1-6]$/.test(tagName) ? parseInt(tagName.replace("H", "")) : 1;
+            const words = text.split(/\s+/).filter(Boolean).length;
+            totalWordCount += words;
+
+            const sentences = splitIntoSentences(text, pIdx, sentenceCounter, cleanedInnerHtml);
+            sentenceCounter += sentences.length;
+
+            parsedParagraphs.push({
+              id: `p_real_${pIdx + 1}`,
+              documentId: docId,
+              type: "heading",
+              level,
+              alignment: finalAlignment,
+              pageBreakBefore: isSectionHeading,
+              htmlContent: cleanedInnerHtml,
+              styleName: `Heading ${level}`,
+              orderNo: pIdx + 1,
+              sentences,
+            });
+            return;
+          }
+
+          // 6. Blockquotes
+          if (tagName === "BLOCKQUOTE") {
+            const words = text.split(/\s+/).filter(Boolean).length;
+            totalWordCount += words;
+
+            const sentences = splitIntoSentences(text, pIdx, sentenceCounter, cleanedInnerHtml);
+            sentenceCounter += sentences.length;
+
+            parsedParagraphs.push({
+              id: `p_real_${pIdx + 1}`,
+              documentId: docId,
+              type: "blockquote",
+              htmlContent: cleanedInnerHtml,
+              styleName: "Blockquote",
+              orderNo: pIdx + 1,
+              sentences,
+            });
+            return;
+          }
+
+          // 7. Standard Academic Paragraph
           const words = text.split(/\s+/).filter(Boolean).length;
           totalWordCount += words;
 
-          const sentences = splitIntoSentences(text, pIdx, sentenceCounter, el.innerHTML);
+          const sentences = splitIntoSentences(text, pIdx, sentenceCounter, cleanedInnerHtml);
           sentenceCounter += sentences.length;
 
           parsedParagraphs.push({
             id: `p_real_${pIdx + 1}`,
             documentId: docId,
             type: "paragraph",
-            htmlContent: el.innerHTML,
-            styleName: "Body Text",
+            alignment: finalAlignment,
+            pageBreakBefore: isSectionHeading,
+            htmlContent: cleanedInnerHtml,
+            styleName: isTitlePageP ? "Title Cover" : "Body Text",
             orderNo: pIdx + 1,
             sentences,
           });

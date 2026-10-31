@@ -118,6 +118,9 @@ export interface DocumentParagraphNode {
   tableData?: string[][];
   imageUrl?: string;
   imageCaption?: string;
+  alignment?: 'left' | 'center' | 'right' | 'justify';
+  isEmptyLine?: boolean;
+  pageBreakBefore?: boolean;
   sentences: DocumentSentence[];
   orderNo: number;
 }
