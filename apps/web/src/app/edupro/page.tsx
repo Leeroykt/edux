@@ -7,20 +7,14 @@ import { apiClient } from "../../services/api/apiClient";
 import { Navbar } from "../../components/navigation/Navbar";
 import { EditorSidebar } from "../../components/editor/EditorSidebar";
 import { EduProDashboard } from "../../components/dashboard/EduProDashboard";
+import { useTheme } from "../../services/theme/themeContext";
 
 export default function EduProPage() {
   const router = useRouter();
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDarkMode]);
 
   useEffect(() => {
     async function loadDocs() {
@@ -45,7 +39,7 @@ export default function EduProPage() {
     <div className="h-screen max-h-screen overflow-hidden flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
       <Navbar
         isDarkMode={isDarkMode}
-        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        onToggleDarkMode={toggleTheme}
       />
 
       <main className="flex-1 min-h-0 flex overflow-hidden relative">

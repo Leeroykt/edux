@@ -81,6 +81,19 @@ export class EduxApiClient {
     return this.currentUser;
   }
 
+  public setCurrentUser(user: User | null): void {
+    this.currentUser = user;
+    if (typeof window !== "undefined") {
+      try {
+        if (user) {
+          localStorage.setItem("edux_user", JSON.stringify(user));
+        } else {
+          localStorage.removeItem("edux_user");
+        }
+      } catch {}
+    }
+  }
+
   private async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
     if (typeof window === "undefined") {
       // Avoid relative URL SSR fetch errors on Node

@@ -21,13 +21,15 @@ import { AuthModal } from "../components/navigation/AuthModal";
 import { UploadDocxModal } from "../components/editor/UploadDocxModal";
 import { apiClient } from "../services/api/apiClient";
 import { User } from "@edux/schema";
+import { useTheme } from "../services/theme/themeContext";
 
 const SAMPLE_AI_TEXT =
   "Furthermore, it is essential to consider the implications of automated algorithmic heuristics within contemporary research. Moreover, machine learning models have demonstrated unprecedented capability in synthesizing vast corpuses of data. In conclusion, delving into this pivotal technological landscape is crucial for advancing pedagogical paradigms.";
 
 export default function StealthLandingPage() {
   const router = useRouter();
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -63,15 +65,6 @@ export default function StealthLandingPage() {
   const GUEST_WORD_LIMIT = 300;
   const wordCount = inputText.trim() ? inputText.trim().split(/\s+/).length : 0;
   const isOverLimit = wordCount > GUEST_WORD_LIMIT;
-
-  // Sync dark mode
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDarkMode]);
 
   // Check auth user safely in browser (zero 401s if guest)
   useEffect(() => {
@@ -254,7 +247,7 @@ export default function StealthLandingPage() {
 
           {/* Theme Toggle (Light & Dark Mode) */}
           <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
+            onClick={toggleTheme}
             className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
             title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
           >
@@ -266,26 +259,19 @@ export default function StealthLandingPage() {
             <div className="flex items-center gap-3">
               <Link
                 href="/dashboard"
-                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 transition-colors"
+                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 transition-colors"
               >
-                Dashboard
+                Workspace
               </Link>
               <Link
-                href="/edit"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-elite-600 hover:bg-elite-700 text-xs font-bold text-white shadow-xs transition-colors"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Word Editor</span>
-              </Link>
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
+                href="/profile"
                 className="flex items-center gap-2 pl-1 group cursor-pointer"
-                title="Account Settings"
+                title="View Scholar Profile"
               >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-elite-600 to-teal-400 text-white flex items-center justify-center font-bold text-xs shadow-md group-hover:scale-105 transition-transform">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-elite-600 to-teal-400 text-white flex items-center justify-center font-bold text-xs shadow-md group-hover:scale-105 transition-transform ring-2 ring-elite-200 dark:ring-slate-800">
                   {currentUser.name.slice(0, 2).toUpperCase()}
                 </div>
-              </button>
+              </Link>
             </div>
           ) : (
             <div className="flex items-center gap-2.5">
@@ -334,20 +320,42 @@ export default function StealthLandingPage() {
 
             {/* Action Buttons */}
             <div className="flex flex-wrap items-center gap-3.5 pt-2">
-              <a
-                href="#try-it-now"
-                className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-sm font-bold shadow-lg shadow-elite-600/30 active:scale-95 transition-all cursor-pointer"
-              >
-                <span>Start for Free</span>
-                <ArrowRight className="w-4 h-4" />
-              </a>
+              {currentUser ? (
+                <>
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-sm font-bold shadow-lg shadow-elite-600/30 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <span>Go to Workspace</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
 
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="px-6 py-3.5 rounded-xl bg-white hover:bg-elite-50/60 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-elite-600 dark:hover:text-elite-400 border border-slate-200 dark:border-slate-800 hover:border-elite-300 dark:hover:border-elite-700 text-sm font-bold transition-all cursor-pointer shadow-xs"
-              >
-                Sign In
-              </button>
+                  <Link
+                    href="/edit"
+                    className="px-6 py-3.5 rounded-xl bg-white hover:bg-elite-50/60 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-elite-600 dark:hover:text-elite-400 border border-slate-200 dark:border-slate-800 hover:border-elite-300 dark:hover:border-elite-700 text-sm font-bold transition-all cursor-pointer shadow-xs flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4 text-elite-600" />
+                    <span>Open Word Editor</span>
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <a
+                    href="#try-it-now"
+                    className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-sm font-bold shadow-lg shadow-elite-600/30 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <span>Start for Free</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </a>
+
+                  <button
+                    onClick={() => setIsAuthModalOpen(true)}
+                    className="px-6 py-3.5 rounded-xl bg-white hover:bg-elite-50/60 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-elite-600 dark:hover:text-elite-400 border border-slate-200 dark:border-slate-800 hover:border-elite-300 dark:hover:border-elite-700 text-sm font-bold transition-all cursor-pointer shadow-xs"
+                  >
+                    Sign In
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Benefits Checkmarks */}

@@ -16,6 +16,7 @@ import {
 import mammoth from "mammoth";
 import { DocumentMeta, DocumentParagraphNode, DocumentSentence, ScoreBand } from "@edux/schema";
 import { apiClient } from "../../services/api/apiClient";
+import { setActiveDocument } from "../../services/storage/documentStore";
 
 interface UploadDocxModalProps {
   isOpen: boolean;
@@ -266,13 +267,8 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      // Store in sessionStorage for instant SPA retrieval across routes
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(
-          "active_document",
-          JSON.stringify({ meta: newDocMeta, paragraphs: parsedParagraphs })
-        );
-      }
+      // Store safely in memory & IndexedDB (supports 100MB+ manuscripts without quota errors)
+      await setActiveDocument(newDocMeta, parsedParagraphs);
 
       // Persist to backend database & AI detection pipeline asynchronously
       apiClient.createDocument({

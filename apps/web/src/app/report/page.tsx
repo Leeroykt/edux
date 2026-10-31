@@ -7,21 +7,15 @@ import { apiClient } from "../../services/api/apiClient";
 import { Navbar } from "../../components/navigation/Navbar";
 import { EditorSidebar } from "../../components/editor/EditorSidebar";
 import { SimilarityReportView } from "../../components/report/SimilarityReportView";
+import { useTheme } from "../../services/theme/themeContext";
 
 export default function ReportPage() {
   const router = useRouter();
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
   const [documentMeta, setDocumentMeta] = useState<DocumentMeta | null>(null);
   const [similarityReport, setSimilarityReport] = useState<SimilarityReport | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDarkMode]);
 
   useEffect(() => {
     async function loadReport() {
@@ -44,7 +38,7 @@ export default function ReportPage() {
       <Navbar
         documentTitle={documentMeta?.title || "Academic Manuscript.docx"}
         isDarkMode={isDarkMode}
-        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        onToggleDarkMode={toggleTheme}
       />
 
       <main className="flex-1 min-h-0 flex overflow-hidden relative">

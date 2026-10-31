@@ -6,21 +6,15 @@ import { apiClient } from "../../services/api/apiClient";
 import { Navbar } from "../../components/navigation/Navbar";
 import { EditorSidebar } from "../../components/editor/EditorSidebar";
 import { PricingModal } from "../../components/pricing/PricingModal";
+import { useTheme } from "../../services/theme/themeContext";
 
 export default function PlansPage() {
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentPlan, setCurrentPlan] = useState<PlanType>("individual");
   const [usage, setUsage] = useState<UsageSummary | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDarkMode]);
 
   useEffect(() => {
     async function loadInitial() {
@@ -68,7 +62,7 @@ export default function PlansPage() {
       <Navbar
         usage={usage}
         isDarkMode={isDarkMode}
-        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        onToggleDarkMode={toggleTheme}
       />
 
       <main className="flex-1 min-h-0 flex overflow-hidden relative">

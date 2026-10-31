@@ -59,14 +59,18 @@ h1, h2, h3, h4, h5, h6, .brand-font, .font-raleway {
   width: 100%;
   max-width: 816px; /* Standard A4 / US Letter width at 96 DPI */
   min-height: 1056px;
+  height: auto;
+  box-sizing: border-box;
   margin: 0 auto;
   border-radius: 2px; /* Almost sharp corners as requested */
   border: 1px solid rgba(226, 232, 240, 0.85);
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 14px 28px -6px rgba(0, 0, 0, 0.06);
-  padding: 72px 80px; /* 1 inch standard academic margins */
+  padding: 72px 80px 48px 80px; /* 1 inch standard academic margins with clean bottom clearance */
   position: relative;
   transition: all 0.2s ease-in-out;
   outline: none;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (max-width: 768px) {

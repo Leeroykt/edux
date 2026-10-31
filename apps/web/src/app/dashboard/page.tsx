@@ -12,29 +12,23 @@ import { AuthModal } from "../../components/navigation/AuthModal";
 import { FidelityReportModal } from "../../components/editor/FidelityReportModal";
 import { Lock, LogIn, Sparkles, GraduationCap } from "lucide-react";
 import { MOCK_DOCUMENT, MOCK_USAGE, MOCK_VOICE_PROFILE } from "../../services/api/mockData";
+import { useTheme } from "../../services/theme/themeContext";
+import { getActiveDocument } from "../../services/storage/documentStore";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [documentMeta, setDocumentMeta] = useState<DocumentMeta | null>(null);
   const [documents, setDocuments] = useState<DocumentMeta[]>([]);
   const [usage, setUsage] = useState<UsageSummary>(MOCK_USAGE);
   const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(MOCK_VOICE_PROFILE);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-
-  // Sync dark mode class
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDarkMode]);
 
   // Load initial data safely
   useEffect(() => {
@@ -58,24 +52,13 @@ export default function DashboardPage() {
         if (vp) setVoiceProfile(vp);
 
         // Check if user uploaded a document in this session
-        const cached =
-          typeof window !== "undefined"
-            ? window.sessionStorage.getItem("active_document")
-            : null;
-
-        if (cached) {
-          try {
-            const parsed = JSON.parse(cached);
-            if (parsed.meta) {
-              setDocumentMeta(parsed.meta);
-              const userDocs = [parsed.meta, ...(dbDocs || []).filter((d) => d.id !== parsed.meta.id)];
-              setDocuments(userDocs);
-              setIsLoading(false);
-              return;
-            }
-          } catch (e) {
-            console.error("Error reading cached doc on dashboard:", e);
-          }
+        const activeStored = await getActiveDocument();
+        if (activeStored && activeStored.meta) {
+          setDocumentMeta(activeStored.meta);
+          const userDocs = [activeStored.meta, ...(dbDocs || []).filter((d) => d.id !== activeStored.meta.id)];
+          setDocuments(userDocs);
+          setIsLoading(false);
+          return;
         }
 
         setDocuments(dbDocs || []);
@@ -96,7 +79,7 @@ export default function DashboardPage() {
       {/* 1. Global Minimalist Topbar */}
       <Navbar
         isDarkMode={isDarkMode}
-        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        onToggleDarkMode={toggleTheme}
         onUploadClick={() => setIsUploadModalOpen(true)}
       />
 

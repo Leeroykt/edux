@@ -364,11 +364,12 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         (acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length,
         0
       );
-      // Academic A4 sheet standard capacity: ~650 words or 8+ paragraphs before natural break
-      if (
-        currentPageItems.length >= 4 &&
-        (currentWords + pWordCount > 650 || currentPageItems.length >= 9)
-      ) {
+      // Academic A4 sheet capacity: ~420 words or 5 paragraphs before clean natural page break
+      const shouldBreak =
+        currentPageItems.length > 0 &&
+        (currentWords + pWordCount > 420 || currentPageItems.length >= 5 || pWordCount > 350);
+
+      if (shouldBreak) {
         result.push({
           pageNumber: result.length + 1,
           items: currentPageItems,
@@ -598,7 +599,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             key={page.pageNumber}
             className={`word-a4-page ${
               paperTheme === "dark" ? "word-a4-page-dark" : ""
-            } leading-relaxed text-[16px] flex flex-col justify-between`}
+            } leading-relaxed text-[16px] flex flex-col`}
             style={{
               fontFamily: fontFamily,
             }}
@@ -617,7 +618,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </div>
 
             {/* Page Paragraphs & Sentences */}
-            <div className="space-y-4 flex-1 min-h-[700px]">
+            <div className="space-y-4 flex-1 min-h-[720px] pb-6">
               {page.items.map(({ p, originalIdx }) => {
                 // 1. Heading Elements H1 - H6
                 if (p.type === "heading") {
@@ -821,7 +822,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             {/* Running Page Footer */}
             <div
               contentEditable={false}
-              className="text-[11px] font-sans text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-4 mt-8 flex items-center justify-between select-none shrink-0"
+              className="text-[11px] font-sans text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-4 mt-auto flex items-center justify-between select-none shrink-0"
             >
               <span>eduX Academic Integrity & Lossless Manuscript Engine</span>
               <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">

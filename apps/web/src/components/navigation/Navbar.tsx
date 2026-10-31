@@ -26,6 +26,7 @@ import {
 import { UsageSummary, User } from "@edux/schema";
 import { AuthModal } from "./AuthModal";
 import { apiClient } from "../../services/api/apiClient";
+import { useTheme } from "../../services/theme/themeContext";
 
 interface NavbarProps {
   documentTitle?: string;
@@ -34,8 +35,9 @@ interface NavbarProps {
   onUploadClick?: () => void;
   onOpenDocPicker?: () => void;
   isSaving?: boolean;
-  isDarkMode: boolean;
-  onToggleDarkMode: () => void;
+  isDarkMode?: boolean;
+  onToggleDarkMode?: () => void;
+  currentUser?: User | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -45,13 +47,17 @@ export const Navbar: React.FC<NavbarProps> = ({
   onUploadClick,
   onOpenDocPicker,
   isSaving = false,
-  isDarkMode,
-  onToggleDarkMode,
+  isDarkMode: propIsDarkMode,
+  onToggleDarkMode: propOnToggleDarkMode,
+  currentUser: propCurrentUser,
 }) => {
   const pathname = usePathname();
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDarkMode = propIsDarkMode !== undefined ? propIsDarkMode : resolvedTheme === "dark";
+  const onToggleDarkMode = propOnToggleDarkMode || toggleTheme;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(propCurrentUser || null);
 
   React.useEffect(() => {
     const user = apiClient.getCurrentUser();
@@ -167,10 +173,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* User Profile Avatar (Logged In) OR Sign In Button (Guest) */}
         {currentUser ? (
-          <button
-            onClick={() => setIsAuthModalOpen(true)}
+          <Link
+            href="/profile"
             className="flex items-center gap-2 pl-1 select-none group cursor-pointer"
-            title="Account, Session & Plan Quota"
+            title="View Academic Profile & Account"
           >
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-elite-600 to-teal-400 text-white flex items-center justify-center font-bold text-xs ring-2 ring-elite-100 dark:ring-slate-800 shadow-xs group-hover:scale-105 transition-transform">
               {currentUser.name
@@ -183,7 +189,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="hidden md:inline text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-elite-50 dark:bg-elite-950 text-elite-700 dark:text-elite-300 border border-elite-200 dark:border-elite-800">
               {currentUser.planType === "edu_pro" ? "Edu Pro" : "Individual"}
             </span>
-          </button>
+          </Link>
         ) : (
           <button
             onClick={() => setIsAuthModalOpen(true)}

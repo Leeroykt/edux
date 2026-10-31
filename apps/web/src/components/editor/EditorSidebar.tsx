@@ -26,7 +26,8 @@ import {
   Moon,
   UploadCloud,
   CheckCircle2,
-  FolderOpen
+  FolderOpen,
+  UserCircle
 } from "lucide-react";
 import { HelpTooltip } from "../ui/HelpTooltip";
 
@@ -123,6 +124,13 @@ export const EditorSidebar: React.FC<EditorSidebarProps> = ({
       href: "/plans",
       label: "Plans",
       icon: <CreditCard className="w-4 h-4" />,
+      badge: null,
+      badgeColor: "",
+    },
+    {
+      href: "/profile",
+      label: "Scholar Profile",
+      icon: <UserCircle className="w-4 h-4" />,
       badge: null,
       badgeColor: "",
     },

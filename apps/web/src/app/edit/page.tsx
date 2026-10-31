@@ -22,6 +22,8 @@ import { UploadDocxModal } from "../../components/editor/UploadDocxModal";
 import { DocumentPickerModal } from "../../components/editor/DocumentPickerModal";
 import { InsertImageModal } from "../../components/editor/InsertImageModal";
 import { InsertTableModal } from "../../components/editor/InsertTableModal";
+import { getActiveDocument } from "../../services/storage/documentStore";
+import { useTheme } from "../../services/theme/themeContext";
 
 interface HistoryItem {
   sentenceId: string;
@@ -41,8 +43,9 @@ export default function WordEditorPage() {
   const [similarityReport, setSimilarityReport] = useState<SimilarityReport | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
 
-  // Dark Mode & Paper Canvas Mode
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  // Dark Mode & Paper Canvas Mode (Follows system & global preference)
+  const { resolvedTheme, toggleTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
   const [paperTheme, setPaperTheme] = useState<"white" | "dark">("white");
   const [fontFamily, setFontFamily] = useState<string>("Times New Roman");
   const [fontSize, setFontSize] = useState<string>("3");
@@ -69,15 +72,6 @@ export default function WordEditorPage() {
   const [undoStack, setUndoStack] = useState<HistoryItem[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Sync dark mode
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDarkMode]);
 
   // Keyboard shortcut listener for Undo (Ctrl+Z) and Redo (Ctrl+Y or Ctrl+Shift+Z)
   useEffect(() => {
@@ -113,37 +107,32 @@ export default function WordEditorPage() {
         const libraryDocs = [...dbDocs, ...eduDocs.filter((ed) => !dbDocs.some((d) => d.id === ed.id))];
 
         // Check if there is an active document uploaded by the user in this session
-        const cached =
-          typeof window !== "undefined"
-            ? window.sessionStorage.getItem("active_document")
-            : null;
+        const activeStored = await getActiveDocument();
 
-        if (cached) {
+        if (activeStored && activeStored.meta && activeStored.paragraphs) {
           try {
-            const parsed = JSON.parse(cached);
-            if (parsed.meta && parsed.paragraphs) {
-              setDocumentMeta(parsed.meta);
-              setParagraphs(parsed.paragraphs);
-              setSimilarityReport(rep);
-              setUsage(usg);
-              setAllDocuments([parsed.meta, ...libraryDocs]);
-              setInsertedElements([]);
+            setDocumentMeta(activeStored.meta);
+            setParagraphs(activeStored.paragraphs);
+            setSimilarityReport(rep);
+            setUsage(usg);
+            setAllDocuments([activeStored.meta, ...libraryDocs]);
+            setInsertedElements([]);
 
-              // Dynamically build suggestions for any flagged sentence in the real document
-              const dynamicSuggs: Record<string, SuggestionCandidate[]> = {
-                ...MOCK_SUGGESTIONS,
-              };
-              parsed.paragraphs.forEach((p: DocumentParagraphNode) => {
-                p.sentences.forEach((s: DocumentSentence) => {
-                  if (s.score && s.score.score >= 0.45 && !dynamicSuggs[s.id]) {
-                    dynamicSuggs[s.id] = [
-                      {
-                        id: `sug_${s.id}_1`,
-                        sentenceId: s.id,
-                        text: s.text.replace(
-                          /furthermore|moreover|in conclusion|delve|testament|crucial|pivotal|landscape/gi,
-                          (match) => {
-                            const lower = match.toLowerCase();
+            // Dynamically build suggestions for any flagged sentence in the real document
+            const dynamicSuggs: Record<string, SuggestionCandidate[]> = {
+              ...MOCK_SUGGESTIONS,
+            };
+            activeStored.paragraphs.forEach((p: DocumentParagraphNode) => {
+              p.sentences.forEach((s: DocumentSentence) => {
+                if (s.score && s.score.score >= 0.45 && !dynamicSuggs[s.id]) {
+                  dynamicSuggs[s.id] = [
+                    {
+                      id: `sug_${s.id}_1`,
+                      sentenceId: s.id,
+                      text: s.text.replace(
+                        /furthermore|moreover|in conclusion|delve|testament|crucial|pivotal|landscape/gi,
+                        (match) => {
+                          const lower = match.toLowerCase();
                             if (lower === "furthermore") return "specifically";
                             if (lower === "moreover") return "in addition";
                             if (lower === "crucial") return "essential";
@@ -166,7 +155,6 @@ export default function WordEditorPage() {
               });
               setSuggestionsMap(dynamicSuggs);
               return;
-            }
           } catch (e) {
             console.error("Error reading cached document:", e);
           }
@@ -267,20 +255,11 @@ export default function WordEditorPage() {
     try {
       setSelectedSentence(null);
       setInsertedElements([]);
-      const cached =
-        typeof window !== "undefined"
-          ? window.sessionStorage.getItem("active_document")
-          : null;
-
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          if (parsed.meta?.id === targetDoc.id && parsed.paragraphs) {
-            setDocumentMeta(parsed.meta);
-            setParagraphs(parsed.paragraphs);
-            return;
-          }
-        } catch {}
+      const activeStored = await getActiveDocument();
+      if (activeStored && activeStored.meta?.id === targetDoc.id && activeStored.paragraphs) {
+        setDocumentMeta(activeStored.meta);
+        setParagraphs(activeStored.paragraphs);
+        return;
       }
 
       const struct = await apiClient.getDocumentStructure(targetDoc.id);
@@ -664,7 +643,7 @@ export default function WordEditorPage() {
         onOpenDocPicker={() => setIsDocPickerOpen(true)}
         isSaving={isSaving}
         isDarkMode={isDarkMode}
-        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        onToggleDarkMode={toggleTheme}
       />
 
       {/* 2. Main Workbench: Left Stationary Sidebar + Word Editor Canvas + Right Inspector */}
