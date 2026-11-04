@@ -21,12 +21,15 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAuthSuccess?: (user: User) => void;
+  /** Which tab to show first for a signed-out visitor. */
+  initialMode?: "login" | "register";
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
   onAuthSuccess,
+  initialMode = "login",
 }) => {
   const [mode, setMode] = useState<"status" | "login" | "register">("login");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -42,31 +45,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      setError(null);
-      checkUser();
-    }
+    if (!isOpen) return;
+    setError(null);
+    setSuccessMessage(null);
+    setMode(initialMode);
+    checkUser();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [isOpen]);
 
   async function checkUser() {
     try {
       const data = await apiClient.getMe();
+      // Only a signed-in visitor is switched; a signed-out one keeps the tab they asked for.
       if (data && data.user) {
         setCurrentUser(data.user);
         setUsage(data.usage);
         setMode("status");
-      } else {
-        setMode("login");
       }
     } catch {
-      setMode("login");
+      // stay on the current tab
     }
   }
 
   async function handleLogin(e?: React.FormEvent) {
     if (e) e.preventDefault();
     const cleanEmail = email.trim();
-    const cleanPass = password.trim();
+    // Passwords are used exactly as typed; spaces can be part of one.
+    const cleanPass = password;
 
     if (!cleanEmail || !cleanPass) {
       setError("Please enter your email and password.");
@@ -90,7 +99,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     const cleanEmail = email.trim();
-    const cleanPass = password.trim();
+    const cleanPass = password;
     const cleanName = name.trim() || cleanEmail.split("@")[0] || "Academic Scholar";
 
     if (!cleanEmail || !cleanPass) {
@@ -103,8 +112,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    if (cleanPass.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (cleanPass.length < 8) {
+      setError("Choose a password of at least 8 characters.");
       return;
     }
 
@@ -155,7 +164,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
+    <div role="dialog" aria-modal="true" aria-label="Sign in or create an account" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden transition-all">
         {/* Header */}
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
@@ -167,15 +176,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
                 {mode === "status" && "Your Session & Quota"}
                 {mode === "login" && "Sign In to eduX"}
-                {mode === "register" && "Create Researcher Account"}
+                {mode === "register" && "Create your account"}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Lossless Academic Humanizer & Integrity Suite
+                Score and rewrite your academic writing
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -227,7 +237,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Error Alert */}
         {error && (
-          <div className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-medium">
+          <div role="alert" className="mx-6 mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-medium">
             {error}
           </div>
         )}
@@ -258,7 +268,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </span>
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3" />
-                      Active Session (JWT)
+                      Signed in
                     </span>
                   </div>
                 </div>
@@ -268,7 +278,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {usage && (
                 <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-800/30 border border-slate-200/70 dark:border-slate-800 space-y-2">
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-600 dark:text-slate-400 font-medium">Daily Words Quota</span>
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">Words scored today</span>
                     <span className="font-bold text-slate-900 dark:text-white">
                       {usage.wordsScoredToday.toLocaleString()} / {usage.dailyWordCap.toLocaleString()}
                     </span>
@@ -307,13 +317,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           ) : mode === "login" ? (
             <form onSubmit={handleLogin} noValidate className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label htmlFor="auth-login-email" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   Email Address
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
-                    type="text"
+                    id="auth-login-email"
+                    type="email"
+                    autoComplete="username"
+                    autoFocus
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="name@university.edu"
@@ -323,13 +336,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                <label htmlFor="auth-login-password" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                   Password
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
+                    id="auth-login-password"
                     type="password"
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••••••"
@@ -347,7 +362,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {loading ? "Signing In..." : "Sign In"}
               </button>
 
-              {/* 1-Click Demo Login */}
+              {/* Demo login exists for local development only. */}
+              {process.env.NODE_ENV !== "production" && (
               <div className="pt-2">
                 <button
                   type="button"
@@ -355,24 +371,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-elite-50 hover:text-elite-700 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <KeyRound className="w-3.5 h-3.5 text-elite-600" />
-                  1-Click Sign In as Oxford Demo Researcher
+                  Sign in as the demo account (development only)
                 </button>
               </div>
+              )}
             </form>
           ) : (
             <form onSubmit={handleRegister} noValidate className="space-y-3.5">
               {/* Field 1: EMAIL FIRST */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                <label htmlFor="auth-reg-email" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Email Address *
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
-                    type="text"
+                    id="auth-reg-email"
+                    type="email"
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. admin@higrades.ac.zw"
+                    placeholder="name@university.edu"
                     className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-elite-600"
                   />
                 </div>
@@ -380,16 +399,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               {/* Field 2: PASSWORD */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                <label htmlFor="auth-reg-password" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Password *
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
+                    id="auth-reg-password"
                     type="password"
+                    autoComplete="new-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 6 characters"
+                    placeholder="At least 8 characters"
                     className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-elite-600"
                   />
                 </div>
@@ -397,13 +418,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               {/* Field 3: FULL NAME (Optional) */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Full Name / Academic Title <span className="font-normal text-slate-400">(Optional)</span>
+                <label htmlFor="auth-reg-name" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Full Name <span className="font-normal text-slate-400">(Optional)</span>
                 </label>
                 <div className="relative">
                   <UserIcon className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <input
+                    id="auth-reg-name"
                     type="text"
+                    autoComplete="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Dr. Alex Hawthorne"
@@ -414,10 +437,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               {/* Field 4: ROLE */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                <label htmlFor="auth-reg-role" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Academic Role
                 </label>
                 <select
+                  id="auth-reg-role"
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-elite-600"

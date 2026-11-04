@@ -1,5 +1,6 @@
 "use client";
 
+import { useEscape } from "../../hooks/useEscape";
 import React, { useState, useRef } from "react";
 import {
   X,
@@ -51,6 +52,7 @@ export const InsertImageModal: React.FC<InsertImageModalProps> = ({
     },
   ];
 
+  useEscape(isOpen, onClose);
   if (!isOpen) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,7 +97,7 @@ export const InsertImageModal: React.FC<InsertImageModalProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 select-none animate-in fade-in duration-150">
+      <div role="dialog" aria-modal="true" aria-label="Insert an image" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 select-none animate-in fade-in duration-150">
         <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">

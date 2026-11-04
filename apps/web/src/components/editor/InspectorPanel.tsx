@@ -23,25 +23,45 @@ import {
   X
 } from "lucide-react";
 import { HelpTooltip } from "../ui/HelpTooltip";
+import { checkSentence } from "../../lib/writingChecks";
+import { convertSpelling, Dialect, dialectLabel } from "../../lib/dialect";
 
 interface InspectorPanelProps {
   selectedSentence: DocumentSentence | null;
   suggestions: SuggestionCandidate[];
   isLoadingSuggestions: boolean;
+  suggestionsError?: string | null;
+  onRetrySuggestions?: () => void;
+  isRescoring?: boolean;
+  isScanning?: boolean;
+  tone: "academic" | "neutral" | "conversational";
+  onToneChange: (tone: "academic" | "neutral" | "conversational") => void;
   onApplySuggestion: (candidate: SuggestionCandidate) => void;
+  dialect: Dialect;
+  grammarChecks: boolean;
+  onFixSentence: (sentence: DocumentSentence, text: string) => void;
   onToggleLock: (sentenceId: string) => void;
   report: SimilarityReport | null;
   isOpen: boolean;
   onCloseMobile: () => void;
 }
 
-export type InspectorTab = "suggestions" | "scores" | "similarity" | "formatting";
+export type InspectorTab = "suggestions" | "scores" | "similarity";
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   selectedSentence,
   suggestions,
   isLoadingSuggestions,
+  suggestionsError = null,
+  onRetrySuggestions,
+  isRescoring = false,
+  isScanning = false,
+  tone,
+  onToneChange,
   onApplySuggestion,
+  dialect,
+  grammarChecks,
+  onFixSentence,
   onToggleLock,
   report,
   isOpen,
@@ -49,7 +69,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>("suggestions");
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, "up" | "down">>({});
-  const [toneSetting, setToneSetting] = useState<"academic" | "neutral" | "conversational">("academic");
 
   const score = selectedSentence?.score;
   const match = report?.matches.find((m) => m.sentenceId === selectedSentence?.id);
@@ -65,24 +84,35 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         return "Stock Transition Words";
       case "repetitive_openers":
         return "Repetitive Sentence Opener";
+      case "low_specificity":
+        return "Low Specificity";
+      case "academic_formulaic":
+        return "Formulaic Academic Phrasing";
+      case "repetitive_structure":
+        return "Repetitive Structure";
+      case "cliche_collocations":
+        return "Cliché Word Pairings";
+      case "unnatural_symmetry":
+        return "Unnatural Symmetry";
       default:
-        return reason.replace("_", " ");
+        return String(reason).replace(/_/g, " ");
     }
   };
 
   return (
     <aside
-      className={`fixed lg:static top-16 right-0 bottom-0 z-30 w-84 sm:w-96 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-transform duration-200 ease-in-out shadow-2xl lg:shadow-none select-none ${
+      className={`fixed lg:static top-16 right-0 bottom-0 z-30 w-[min(24rem,100vw)] lg:w-96 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col transition-transform duration-200 ease-in-out shadow-2xl lg:shadow-none select-none ${
         isOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"
       }`}
     >
       {/* Mobile Drawer Header */}
       <div className="lg:hidden flex items-center justify-between p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
         <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
-          Sentence Inspector
+          Review
         </span>
         <button
           onClick={onCloseMobile}
+          aria-label="Close review panel"
           className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
         >
           <X className="w-4 h-4" />
@@ -100,7 +130,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Human Rewrites</span>
+          <span>Rewrites</span>
           {suggestions.length > 0 && (
             <span className="w-4 h-4 rounded-full bg-elite-100 dark:bg-elite-950 text-elite-600 text-[10px] font-bold flex items-center justify-center">
               {suggestions.length}
@@ -117,7 +147,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           }`}
         >
           <ShieldCheck className="w-3.5 h-3.5" />
-          <span>AI Likelihood</span>
+          <span>Checks</span>
         </button>
 
         <button
@@ -133,17 +163,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           {match && <span className="w-2 h-2 rounded-full bg-blue-500" />}
         </button>
 
-        <button
-          onClick={() => setActiveTab("formatting")}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-t-xl transition-all border-b-2 ${
-            activeTab === "formatting"
-              ? "border-elite-600 text-elite-600 dark:text-elite-400 bg-white dark:bg-slate-900 font-bold"
-              : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          <FileSpreadsheet className="w-3.5 h-3.5" />
-          <span>Style</span>
-        </button>
       </div>
 
       {/* Body */}
@@ -151,11 +170,11 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         {!selectedSentence ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
             <Sparkles className="w-10 h-10 stroke-1 text-slate-300 dark:text-slate-600 mb-3 animate-pulse" />
-            <h4 className="font-bold text-slate-700 dark:text-slate-300 text-sm">
-              Select any sentence
-            </h4>
+            <h2 className="font-bold text-slate-700 dark:text-slate-300 text-sm">
+              Select a sentence
+            </h2>
             <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
-              Click any sentence in your Word document to view verified human rewrites and AI score details.
+              Click a sentence to see rewrites, spelling and grammar fixes, and how machine-like it reads.
             </p>
           </div>
         ) : (
@@ -164,7 +183,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1 font-mono text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                  <span>Selected Sentence ({selectedSentence.id})</span>
+                  <span>Selected sentence</span>
                   <HelpTooltip
                     title="Sentence Locking"
                     explanation="Locking a sentence protects its text from being scored or rewritten by AI. Ideal for direct quotations, specialized terminology, or formulas."
@@ -211,9 +230,9 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     {(["academic", "neutral", "conversational"] as const).map((t) => (
                       <button
                         key={t}
-                        onClick={() => setToneSetting(t)}
+                        onClick={() => onToneChange(t)}
                         className={`px-2 py-0.5 rounded-md capitalize transition-all ${
-                          toneSetting === t
+                          tone === t
                             ? "bg-elite-600 text-white font-bold"
                             : "text-slate-500 hover:text-slate-800"
                         }`}
@@ -231,10 +250,30 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                       Generating human rewrites & checking meaning...
                     </span>
                   </div>
+                ) : suggestionsError ? (
+                  <div role="alert" className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-300 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <span>{suggestionsError}</span>
+                    </div>
+                    {onRetrySuggestions && (
+                      <button
+                        onClick={onRetrySuggestions}
+                        className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold"
+                      >
+                        Try again
+                      </button>
+                    )}
+                  </div>
+                ) : selectedSentence.locked ? (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-2">
+                    <Lock className="w-4 h-4 shrink-0" />
+                    <span>This sentence is locked. Unlock it to see rewrites.</span>
+                  </div>
                 ) : suggestions.length === 0 ? (
                   <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>This sentence reads naturally as human writing. No rewrite needed!</span>
+                    <span>No rewrite to suggest for this sentence.</span>
                   </div>
                 ) : (
                   suggestions.map((c) => (
@@ -244,10 +283,18 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-elite-50 dark:bg-elite-950 text-elite-600 dark:text-elite-400 border border-elite-100 dark:border-elite-900">
-                          {c.strategy.replace("_", " ")}
+                          {c.strategy.replace(/_/g, " ")}
                         </span>
 
                         <div className="flex items-center gap-1.5 text-[10px] font-bold">
+                          {c.meaningScore <= 0 ? (
+                            <span
+                              className="text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 rounded"
+                              title="This rewrite has not been checked for meaning. Read it carefully before applying."
+                            >
+                              Unchecked
+                            </span>
+                          ) : (
                           <span
                             className="text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded flex items-center gap-0.5"
                             title="Entailment verification: original and new sentence mean the exact same thing"
@@ -258,12 +305,15 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                               explanation="Evaluates semantic entailment using natural language inference (NLI). Ensures the rewrite preserves facts, numbers, citations, and core argument."
                             />
                           </span>
-                          <span
-                            className="text-elite-600 dark:text-elite-400 bg-elite-50 dark:bg-elite-950 px-1.5 py-0.5 rounded"
-                            title="AI Likelihood drop"
-                          >
-                            {c.scoreDelta}% AI
-                          </span>
+                          )}
+                          {c.scoreDelta !== 0 && (
+                            <span
+                              className="text-elite-600 dark:text-elite-400 bg-elite-50 dark:bg-elite-950 px-1.5 py-0.5 rounded"
+                              title="Expected change in AI likelihood"
+                            >
+                              {c.scoreDelta}% AI
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -318,6 +368,51 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             {/* TAB 2: AI SCORE DETAILS */}
             {activeTab === "scores" && (
               <div className="space-y-4">
+                {(() => {
+                  const spelling = convertSpelling(selectedSentence.text, dialect);
+                  const grammar = grammarChecks ? checkSentence(selectedSentence.text) : [];
+                  const none = spelling.changes.length === 0 && grammar.length === 0;
+                  return (
+                    <div className="space-y-2.5">
+                      <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">Spelling and grammar</div>
+                      {none && (
+                        <div className="rounded-xl border border-slate-200 dark:border-slate-800 px-3 py-2.5 text-xs text-slate-500">
+                          Nothing to fix in this sentence.
+                        </div>
+                      )}
+                      {spelling.changes.length > 0 && (
+                        <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 p-3 space-y-2">
+                          <div className="text-xs text-amber-900 dark:text-amber-200">
+                            {spelling.changes.map((c) => `${c.from} → ${c.to}`).join(", ")}
+                            <span className="block text-[11px] opacity-80 mt-0.5">Spelling for {dialectLabel(dialect)}.</span>
+                          </div>
+                          {!selectedSentence.locked && (
+                            <button onClick={() => onFixSentence(selectedSentence, spelling.text)} className="text-xs font-semibold rounded-lg bg-elite-600 hover:bg-elite-700 text-white px-3 py-1.5">
+                              Fix spelling
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {grammar.map((g) => (
+                        <div key={g.id} className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+                          <div className="flex items-start gap-2 text-xs">
+                            <span className={`mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${g.kind === "grammar" ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300" : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300"}`}>
+                              {g.kind === "grammar" ? "Grammar" : "Clarity"}
+                            </span>
+                            <span className="text-slate-700 dark:text-slate-200 leading-relaxed">{g.message}</span>
+                          </div>
+                          {g.fixedText && !selectedSentence.locked && (
+                            <button onClick={() => onFixSentence(selectedSentence, g.fixedText!)} className="text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800">
+                              Apply fix
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                <div className="text-xs font-semibold text-slate-600 dark:text-slate-300 pt-1">How machine-like it reads</div>
                 {score ? (
                   <div className="space-y-3">
                     <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-center">
@@ -340,7 +435,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                         {Math.round(score.score * 100)}%
                       </div>
                       <div className="text-xs font-semibold capitalize text-slate-600 dark:text-slate-300">
-                        {score.band.replace("_", " ")} Phrasing
+                        {score.band.replace(/_/g, " ")} Phrasing
                       </div>
                     </div>
 
@@ -366,6 +461,12 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                       </div>
                     </div>
 
+                    {score.engine === "reference" && (
+                      <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300">
+                        Scored by the built-in reference heuristic, not a trained model. Treat it as a rough hint.
+                      </div>
+                    )}
+
                     <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-[11px] text-blue-800 dark:text-blue-300 flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                       <span>
@@ -373,8 +474,15 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                       </span>
                     </div>
                   </div>
+                ) : isRescoring || isScanning ? (
+                  <div className="text-xs text-slate-500 flex items-center gap-2">
+                    <span className="w-3 h-3 border-2 border-elite-500 border-t-transparent rounded-full animate-spin" />
+                    Scoring this sentence…
+                  </div>
                 ) : (
-                  <div className="text-xs text-slate-400">Score data unavailable for this sentence.</div>
+                  <div className="text-xs text-slate-500">
+                    No score for this sentence. Sentences under about eight words, headings and locked text are not scored on their own.
+                  </div>
                 )}
               </div>
             )}
@@ -429,27 +537,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </div>
             )}
 
-            {/* TAB 4: STYLE */}
-            {activeTab === "formatting" && (
-              <div className="space-y-3 text-xs">
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-1.5">
-                  <div className="font-bold text-slate-700 dark:text-slate-200">
-                    Active Style: APA 7th Edition
-                  </div>
-                  <div className="text-slate-500 space-y-1 text-[11px]">
-                    <div>• Font: Times New Roman, 12pt</div>
-                    <div>• Spacing: 2.0 (Double spaced)</div>
-                    <div>• Margins: 1.0 inch all sides</div>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold">
-                    <CheckCircle2 className="w-4 h-4" /> Style compliance verified
-                  </div>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>

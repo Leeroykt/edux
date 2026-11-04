@@ -14,10 +14,10 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
   const [subscribedNotice, setSubscribedNotice] = useState<string | null>(null);
 
-  const handleChoose = (plan: PlanType, title: string) => {
-    onSelectPlan(plan);
+  // Payments are not connected, so choosing a plan must not pretend to change one.
+  const handleChoose = (_plan: PlanType, title: string) => {
     setSubscribedNotice(title);
-    setTimeout(() => setSubscribedNotice(null), 3000);
+    setTimeout(() => setSubscribedNotice(null), 6000);
   };
 
   return (
@@ -26,11 +26,11 @@ export const PricingModal: React.FC<PricingModalProps> = ({
         {/* Header */}
         <div className="text-center space-y-2">
           <span className="text-xs font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-            Transparent Academic Integrity Plans (M2)
+            Plans
           </span>
-          <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white">
-            Choose the right tier for your writing
-          </h1>
+          <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white">
+            Pick the plan that fits your writing
+          </h2>
           <p className="text-sm text-slate-500 max-w-xl mx-auto">
             Honest pricing built on our fair-use license: personal writing on Individual, client & student papers on Edu Professional.
           </p>
@@ -39,6 +39,9 @@ export const PricingModal: React.FC<PricingModalProps> = ({
           <div className="pt-2 flex items-center justify-center gap-3">
             <span className="text-xs text-slate-500 font-medium">Billed Monthly</span>
             <button
+              role="switch"
+              aria-checked={billingCycle === "annual"}
+              aria-label="Bill annually"
               onClick={() =>
                 setBillingCycle((prev) => (prev === "monthly" ? "annual" : "monthly"))
               }
@@ -53,7 +56,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
               />
             </button>
             <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
-              Billed Annually <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded">2 Months Free</span>
+              Billed Annually <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded">2 Months Free</span>
             </span>
           </div>
         </div>
@@ -61,7 +64,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
         {subscribedNotice && (
           <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center justify-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Successfully updated plan to <strong>{subscribedNotice}</strong>! Your limits have been updated.</span>
+            <span><strong>{subscribedNotice}</strong> is not open for purchase yet. Your plan has not changed, and you have not been charged.</span>
           </div>
         )}
 
@@ -155,10 +158,11 @@ export const PricingModal: React.FC<PricingModalProps> = ({
             </div>
 
             <button
+              disabled={currentPlan === "individual"}
               onClick={() => handleChoose("individual", "Individual Plan")}
-              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm shadow-indigo-600/20 active:scale-95 transition-all"
+              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm shadow-indigo-600/20 active:scale-95 transition-all disabled:bg-elite-100 disabled:text-elite-900 dark:disabled:bg-elite-900 dark:disabled:text-elite-100 disabled:shadow-none disabled:cursor-default"
             >
-              {currentPlan === "individual" ? "Active Plan" : "Upgrade to Individual ($5/mo)"}
+              {currentPlan === "individual" ? "Your current plan" : "Upgrade to Individual ($5/mo)"}
             </button>
           </div>
 

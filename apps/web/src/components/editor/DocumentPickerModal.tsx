@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   FileText,
   Sparkles,
@@ -34,6 +34,15 @@ export const DocumentPickerModal: React.FC<DocumentPickerModalProps> = ({
 }) => {
   const [search, setSearch] = useState("");
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const filteredDocs = documents.filter((d) =>
@@ -41,7 +50,7 @@ export const DocumentPickerModal: React.FC<DocumentPickerModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-4 overflow-y-auto select-none animate-in fade-in duration-150">
+    <div role="dialog" aria-modal="true" aria-label="Select document" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-4 overflow-y-auto select-none animate-in fade-in duration-150">
       <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -148,13 +157,17 @@ export const DocumentPickerModal: React.FC<DocumentPickerModalProps> = ({
                         <span>•</span>
                         <span className="flex items-center gap-1 text-rose-500 font-semibold">
                           <Sparkles className="w-3 h-3" />
-                          {aiPercent}% AI
+                          {doc.status === "scanning" ? "Scoring…" : doc.status === "error" ? "Not scored" : `${aiPercent}% AI`}
                         </span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1 text-blue-500 font-semibold">
-                          <ShieldCheck className="w-3 h-3" />
-                          {doc.similarityScore || 0}% Sim
-                        </span>
+                        {doc.similarityScore ? (
+                          <>
+                            <span>•</span>
+                            <span className="flex items-center gap-1 text-blue-500 font-semibold">
+                              <ShieldCheck className="w-3 h-3" />
+                              {doc.similarityScore}% Sim
+                            </span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>

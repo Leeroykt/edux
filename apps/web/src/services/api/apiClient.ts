@@ -6,6 +6,7 @@ import {
   VoiceProfile,
   SuggestionCandidate,
   DocumentStage,
+  SentenceScore,
   User
 } from "@edux/schema";
 import {
@@ -20,6 +21,17 @@ import {
 } from "./mockData";
 
 const API_BASE = "/api/v1";
+
+export interface ScanProgress {
+  documentId: string;
+  status: "running" | "done" | "failed";
+  total: number;
+  done: number;
+  cursor: number;
+  error?: string;
+  overallAiScore?: number;
+  scores: SentenceScore[];
+}
 
 export interface AuthResponse {
   user: User;
@@ -94,28 +106,58 @@ export class EduxApiClient {
     }
   }
 
+  private refreshing: Promise<boolean> | null = null;
+
+  /** Renews the access token from the httpOnly refresh cookie. One attempt at a time. */
+  private refreshAccessToken(): Promise<boolean> {
+    if (!this.refreshing) {
+      this.refreshing = (async () => {
+        try {
+          const res = await fetch(`${API_BASE}/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          if (!res.ok) return false;
+          const data = await res.json();
+          this.setToken(data.accessToken, data.user ?? this.currentUser);
+          return true;
+        } catch {
+          return false;
+        } finally {
+          setTimeout(() => (this.refreshing = null), 0);
+        }
+      })();
+    }
+    return this.refreshing;
+  }
+
   private async fetchWithAuth(endpoint: string, options: RequestInit = {}): Promise<Response> {
     if (typeof window === "undefined") {
       // Avoid relative URL SSR fetch errors on Node
       return new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } });
     }
 
-    const headers = new Headers(options.headers || {});
-    if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
-      headers.set("Content-Type", "application/json");
+    const send = () => {
+      const headers = new Headers(options.headers || {});
+      if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
+        headers.set("Content-Type", "application/json");
+      }
+      const token = this.getToken();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const fullUrl = `${API_BASE}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+      return fetch(fullUrl, { ...options, headers });
+    };
+
+    let res = await send();
+
+    // An expired access token is renewed once, quietly, and the request is retried.
+    if (res.status === 401 && this.getToken() && !endpoint.startsWith("/auth/")) {
+      if (await this.refreshAccessToken()) {
+        res = await send();
+      }
+      if (res.status === 401) {
+        // The session really has ended.
+        this.setToken(null, null);
+        window.dispatchEvent(new CustomEvent("edux:session-expired"));
+      }
     }
-
-    const token = this.getToken();
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-
-    const fullUrl = `${API_BASE}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
-
-    let res = await fetch(fullUrl, {
-      ...options,
-      headers,
-    });
 
     return res;
   }
@@ -181,6 +223,25 @@ export class EduxApiClient {
     return null;
   }
 
+  async updateProfile(patch: { name?: string; institution?: string; fieldOfStudy?: string }): Promise<User> {
+    const res = await this.fetchWithAuth("/me", { method: "PATCH", body: JSON.stringify(patch) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error?.message || "Your profile could not be saved.");
+    this.setCurrentUser(data.user);
+    return data.user;
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const res = await this.fetchWithAuth("/auth/password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error?.message || "Your password could not be changed.");
+    }
+  }
+
   /* ---------------- DOCUMENTS API ---------------- */
   async getDocuments(): Promise<DocumentMeta[]> {
     try {
@@ -196,6 +257,7 @@ export class EduxApiClient {
   }
 
   async getDocument(id: string): Promise<DocumentMeta> {
+    if (id === MOCK_DOCUMENT.id) return { ...MOCK_DOCUMENT };
     try {
       const res = await this.fetchWithAuth(`/documents/${id}`);
       if (res.ok) {
@@ -209,29 +271,40 @@ export class EduxApiClient {
   }
 
   async getDocumentStructure(id: string): Promise<DocumentParagraphNode[]> {
-    try {
-      const res = await this.fetchWithAuth(`/documents/${id}/structure`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.paragraphs) && data.paragraphs.length > 0) {
-          return data.paragraphs;
-        }
-      }
-    } catch (err) {
-      console.warn(`Failed to fetch structure for ${id}, fallback:`, err);
+    if (id === MOCK_DOCUMENT.id) return JSON.parse(JSON.stringify(MOCK_PARAGRAPHS));
+    const res = await this.fetchWithAuth(`/documents/${id}/structure`);
+    if (!res.ok) throw new Error("This document could not be loaded from the server.");
+    const data = await res.json();
+    if (!Array.isArray(data.paragraphs) || data.paragraphs.length === 0) {
+      throw new Error("This document has no content on the server.");
     }
-    return JSON.parse(JSON.stringify(MOCK_PARAGRAPHS));
+    return data.paragraphs;
   }
 
   async createDocument(payload: {
+    id?: string;
     title: string;
-    paragraphs: any[];
+    paragraphs: DocumentParagraphNode[];
     folderId?: string;
     ownerDeclaredOwn?: boolean;
   }): Promise<DocumentMeta> {
+    // The server only needs structure and text; HTML and images stay in the browser.
+    const slim = payload.paragraphs.map((p) => ({
+      id: p.id,
+      type: p.type,
+      styleName: p.styleName,
+      sentences: p.sentences.map((s) => ({
+        id: s.id,
+        text: s.text,
+        charStart: s.charStart,
+        charEnd: s.charEnd,
+        locked: s.locked,
+        ignored: s.ignored,
+      })),
+    }));
     const res = await this.fetchWithAuth("/documents", {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, paragraphs: slim }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: { message: "Create document failed" } }));
@@ -239,6 +312,86 @@ export class EduxApiClient {
     }
     const data = await res.json();
     return data.document;
+  }
+
+  /** Scores arrived since `after`, plus overall progress of the background scan. */
+  async getScanProgress(docId: string, after = 0): Promise<ScanProgress | "missing" | null> {
+    try {
+      const res = await this.fetchWithAuth(`/documents/${docId}/scores?after=${after}`);
+      if (res.ok) return await res.json();
+      if (res.status === 404) return "missing";
+    } catch (err) {
+      console.warn("Scan progress request failed:", err);
+    }
+    return null;
+  }
+
+  /**
+   * Follows a scan over one streaming connection. Resolves "ended" when the
+   * server finished the stream, "missing" if the document is gone, and
+   * "unavailable" if streaming is not possible so the caller can poll instead.
+   */
+  async streamScan(
+    docId: string,
+    after: number,
+    onEvent: (event: ScanProgress) => void,
+    signal: AbortSignal
+  ): Promise<"ended" | "missing" | "unavailable"> {
+    try {
+      const res = await this.fetchWithAuth(`/documents/${docId}/scores/stream?after=${after}`, { signal });
+      if (res.status === 404) return "missing";
+      if (!res.ok || !res.body) return "unavailable";
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return "ended";
+        buffer += decoder.decode(value, { stream: true });
+        let split: number;
+        while ((split = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, split);
+          buffer = buffer.slice(split + 2);
+          const line = frame.split("\n").find((l) => l.startsWith("data: "));
+          if (line) {
+            try {
+              onEvent(JSON.parse(line.slice(6)));
+            } catch {
+              // ignore a malformed frame
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err?.name === "AbortError") return "ended";
+      return "unavailable";
+    }
+  }
+
+  async startScan(docId: string): Promise<boolean> {
+    try {
+      const res = await this.fetchWithAuth(`/documents/${docId}/score`, { method: "POST" });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Re-scores one sentence, optionally against replacement text. */
+  async rescoreSentence(sentenceId: string, text?: string): Promise<SentenceScore | null> {
+    try {
+      const res = await this.fetchWithAuth(`/sentences/${sentenceId}/score`, {
+        method: "POST",
+        body: JSON.stringify(text ? { text } : {}),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.notScored || typeof data.score !== "number") return null;
+      return data as SentenceScore;
+    } catch {
+      return null;
+    }
   }
 
   async deleteDocument(id: string): Promise<boolean> {
@@ -266,39 +419,28 @@ export class EduxApiClient {
       tone?: "neutral" | "academic" | "conversational";
       strength?: "light" | "moderate" | "full";
       formality?: number;
-    } = {}
+      dialect?: "en-GB" | "en-US";
+    } = {},
+    signal?: AbortSignal
   ): Promise<SuggestionCandidate[]> {
-    try {
-      const res = await this.fetchWithAuth(`/sentences/${sentenceId}/suggest`, {
-        method: "POST",
-        body: JSON.stringify(options),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) return data;
-        if (Array.isArray(data.suggestions)) return data.suggestions;
-      }
-    } catch (err) {
-      console.warn(`Failed to fetch suggestions for ${sentenceId}:`, err);
+    const res = await this.fetchWithAuth(`/sentences/${sentenceId}/suggest`, {
+      method: "POST",
+      body: JSON.stringify(options),
+      signal,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error?.message || "Could not generate rewrites.");
     }
-
-    return MOCK_SUGGESTIONS[sentenceId] || [
-      {
-        id: `sug_${sentenceId}_gen`,
-        sentenceId,
-        text: "The empirical results indicate marked variation across sample sets, aligning with theoretical benchmarks.",
-        strategy: "academic_tone",
-        meaningScore: 97,
-        scoreDelta: -65,
-        plainExplanation: "Structured sentence for enhanced academic precision and cadence.",
-        lockedTokensPreserved: true,
-      },
-    ];
+    const data = await res.json();
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.suggestions)) return data.suggestions;
+    return [];
   }
 
   async applySuggestion(
     sentenceId: string,
-    payload: { suggestionId?: string; text: string }
+    payload: { suggestionId?: string; text: string; kind?: "rewrite" | "spelling" }
   ): Promise<{ success: boolean; newVersionId: string }> {
     try {
       const res = await this.fetchWithAuth(`/sentences/${sentenceId}/apply`, {
@@ -326,6 +468,7 @@ export class EduxApiClient {
 
   /* ---------------- REPORTS & METER ---------------- */
   async getSimilarityReport(docId: string): Promise<SimilarityReport> {
+    if (docId === MOCK_DOCUMENT.id) return { ...MOCK_SIMILARITY_REPORT, documentId: docId };
     try {
       const res = await this.fetchWithAuth(`/documents/${docId}/reports/latest`);
       if (res.ok) {
@@ -389,6 +532,7 @@ export class EduxApiClient {
     tone?: string;
     strength?: string;
     contextParagraph?: string;
+    dialect?: "en-GB" | "en-US";
   }) {
     const res = await this.fetchWithAuth("/models/rewrite", {
       method: "POST",

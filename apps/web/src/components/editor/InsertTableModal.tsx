@@ -1,3 +1,4 @@
+import { useEscape } from "../../hooks/useEscape";
 import React, { useState } from "react";
 import { X, Table as TableIcon, Check } from "lucide-react";
 
@@ -17,10 +18,11 @@ export const InsertTableModal: React.FC<InsertTableModalProps> = ({
   const [hoverRow, setHoverRow] = useState(3);
   const [hoverCol, setHoverCol] = useState(3);
 
+  useEscape(isOpen, onClose);
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
+    <div role="dialog" aria-modal="true" aria-label="Insert a table" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4">
       <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2.5">

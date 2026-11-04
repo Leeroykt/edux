@@ -1,5 +1,6 @@
 "use client";
 
+import { useEscape } from "../../hooks/useEscape";
 import React, { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -38,6 +39,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEscape(isOpen, onClose);
   if (!isOpen) return null;
 
   const parseDocxFile = async (file: File) => {
@@ -312,39 +314,47 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         throw new Error("Could not extract readable text from this document. Please ensure it is a valid .docx file.");
       }
 
+      // Give every node and sentence an id that is unique across documents,
+      // and make each sentence point at the paragraph that holds it.
+      parsedParagraphs.forEach((p) => {
+        p.id = `${docId}_${p.id}`;
+        p.documentId = docId;
+        p.sentences.forEach((sent) => {
+          sent.id = `${docId}_${sent.id}`;
+          sent.nodeId = p.id;
+        });
+      });
+
       const calculatedPageCount = Math.max(1, Math.ceil(totalWordCount / 500));
 
       const newDocMeta: DocumentMeta = {
-        id: `doc_user_${Date.now()}`,
-        ownerId: "usr_99120",
+        id: docId,
+        ownerId: apiClient.getCurrentUser()?.id || "guest",
         title: file.name,
-        status: "ready",
+        status: "scanning",
         stage: "uploaded",
         currentVersionId: "v_01",
         ownerDeclaredOwn: true,
         wordCount: totalWordCount,
         pageCount: calculatedPageCount,
-        overallAiScore: 0.28,
-        similarityScore: 11,
+        overallAiScore: 0,
+        similarityScore: 0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
-      // Store safely in memory & IndexedDB (supports 100MB+ manuscripts without quota errors)
+      // The browser keeps the full document so the editor opens instantly.
       await setActiveDocument(newDocMeta, parsedParagraphs);
 
-      // Persist to backend database & AI detection pipeline asynchronously
-      apiClient.createDocument({
-        title: file.name,
-        paragraphs: parsedParagraphs,
-      }).catch((err) => console.warn("Failed to persist uploaded document to backend database:", err));
+      // The server scores it in the background; the editor follows progress.
+      apiClient
+        .createDocument({ id: docId, title: file.name, paragraphs: parsedParagraphs })
+        .catch((err) => console.warn("Failed to persist uploaded document:", err));
 
-      setTimeout(() => {
-        setIsProcessing(false);
-        onDocumentLoaded?.(newDocMeta, parsedParagraphs);
-        onClose();
-        router.push("/edit");
-      }, 600);
+      setIsProcessing(false);
+      onDocumentLoaded?.(newDocMeta, parsedParagraphs);
+      onClose();
+      router.push("/edit");
     } catch (err: any) {
       console.error("Real document parsing failed:", err);
       setIsProcessing(false);
@@ -375,13 +385,6 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
           charEnd: trimmed.length,
           locked: false,
           ignored: false,
-          score: {
-            sentenceId: `s_real_${startCounter}`,
-            score: 0.06,
-            band: "likely_human",
-            confidence: 0.98,
-            reasons: [],
-          },
         },
       ];
     }
@@ -415,12 +418,6 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
       const charEnd = charStart + sText.length;
       charCursor = charEnd + 1;
 
-      // Realistic pseudo-stylometric scoring: flag sentences with stock phrases or uniform length
-      const hasGenericStock = /furthermore|moreover|in conclusion|delve|testament|crucial|pivotal|landscape/i.test(sText);
-      const isLongUniform = sText.split(" ").length > 22;
-      const score = hasGenericStock ? 0.76 : isLongUniform ? 0.52 : 0.08;
-      const band: ScoreBand = score > 0.6 ? "likely_machine" : score > 0.3 ? "uncertain" : "likely_human";
-
       return {
         id: sentenceId,
         nodeId: `p_real_${pIdx + 1}`,
@@ -431,13 +428,6 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         charEnd,
         locked: false,
         ignored: false,
-        score: {
-          sentenceId,
-          score,
-          band,
-          confidence: 0.94,
-          reasons: hasGenericStock ? (["stock_transitions", "generic_phrasing"] as any) : [],
-        },
       };
     });
   };
@@ -457,7 +447,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-4 overflow-y-auto select-none animate-in fade-in duration-150">
+    <div role="dialog" aria-modal="true" aria-label="Upload a document" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-4 overflow-y-auto select-none animate-in fade-in duration-150">
       <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800">
@@ -467,10 +457,10 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                Upload Real Document (.docx)
+                Upload a document
               </h3>
               <p className="text-xs text-slate-500">
-                Direct client-side OOXML parser • Preserves your actual headings & paragraphs
+                Your headings, paragraphs, lists and tables come with it
               </p>
             </div>
           </div>
@@ -488,7 +478,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
-            accept=".docx,.doc,.txt,.md"
+            accept=".docx,.txt,.md"
             className="hidden"
           />
 
@@ -513,10 +503,10 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
                   <FileText className="w-6 h-6" />
                 </div>
                 <h4 className="font-bold text-sm text-slate-800 dark:text-slate-200">
-                  Click to choose real .docx file or drag here
+                  Choose a file, or drag it here
                 </h4>
                 <p className="text-xs text-slate-500 mt-1">
-                  Supports Microsoft Word (.docx), plain text (.txt), and Markdown (.md)
+                  Word (.docx), plain text (.txt) or Markdown (.md). The text of each sentence is sent to be checked.
                 </p>
               </div>
 
@@ -542,7 +532,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
                 <p className="text-xs text-slate-500 font-mono">
                   {step === 1 && "Reading OOXML package binary..."}
                   {step === 2 && "Converting Word XML structures & headings..."}
-                  {step === 3 && "Extracting sentences & calculating AI likelihood..."}
+                  {step === 3 && "Splitting sentences. Scoring continues in the editor..."}
                 </p>
               </div>
 

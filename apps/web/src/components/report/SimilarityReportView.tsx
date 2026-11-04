@@ -96,7 +96,7 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
                 1. Plagiarism & Similarity Index
               </span>
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-elite-50 dark:bg-elite-950/60 text-elite-600 dark:text-elite-400">
-                Turnitin Benchmark
+                Illustrative
               </span>
             </div>
 

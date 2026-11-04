@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { apiClient } from "../../services/api/apiClient";
 import { DocumentMeta, DocumentStage } from "@edux/schema";
 import {
   FolderKanban,
@@ -27,9 +28,8 @@ export const EduProDashboard: React.FC<EduProDashboardProps> = ({
   onOpenDocument,
   onUpdateStage,
 }) => {
-  const [activeFolder, setActiveFolder] = useState("Undergraduate Theses 2026");
   const [isBatchRunning, setIsBatchRunning] = useState(false);
-  const [batchSuccessNotice, setBatchSuccessNotice] = useState(false);
+  const [batchNotice, setBatchNotice] = useState<string | null>(null);
 
   const columns: { stage: DocumentStage; label: string; color: string }[] = [
     { stage: "uploaded", label: "Uploaded / Queued", color: "border-slate-300 dark:border-slate-700" },
@@ -38,13 +38,31 @@ export const EduProDashboard: React.FC<EduProDashboardProps> = ({
     { stage: "closed", label: "Approved & Closed", color: "border-emerald-500" },
   ];
 
-  const handleRunBatch = () => {
+  const scored = documents.filter((d) => d.status !== "scanning" && d.status !== "error" && (d.overallAiScore ?? 0) > 0);
+  const avgAi = scored.length
+    ? Math.round((scored.reduce((a, d) => a + (d.overallAiScore ?? 0), 0) / scored.length) * 100)
+    : null;
+  const openCount = documents.filter((d) => d.stage !== "closed").length;
+  const inReview = documents.filter((d) => d.stage === "in_review").length;
+  const waiting = documents.filter((d) => d.status === "scanning").length;
+
+  /** Starts scoring for every open document in the background. */
+  const handleRunBatch = async () => {
+    const targets = documents.filter((d) => d.stage !== "closed");
+    if (targets.length === 0) {
+      setBatchNotice("There are no open documents to score.");
+      return;
+    }
     setIsBatchRunning(true);
-    setTimeout(() => {
-      setIsBatchRunning(false);
-      setBatchSuccessNotice(true);
-      setTimeout(() => setBatchSuccessNotice(false), 3000);
-    }, 1200);
+    setBatchNotice(null);
+    const results = await Promise.all(targets.map((d) => apiClient.startScan(d.id)));
+    const started = results.filter(Boolean).length;
+    setIsBatchRunning(false);
+    setBatchNotice(
+      started === targets.length
+        ? `Scoring started for ${started} document${started === 1 ? "" : "s"}. Open one to follow its progress.`
+        : `Scoring started for ${started} of ${targets.length} documents. The others could not be reached.`
+    );
   };
 
   return (
@@ -55,12 +73,12 @@ export const EduProDashboard: React.FC<EduProDashboardProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                Edu Professional Workspace (M14)
+                Edu Professional
               </span>
-              <span className="text-xs text-slate-400">• Multi-Document & Cohort Management</span>
+              <span className="text-xs text-slate-400"></span>
             </div>
             <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white">
-              Client & Student Workflow Board
+              Client & Student Board
             </h1>
           </div>
 
@@ -73,103 +91,46 @@ export const EduProDashboard: React.FC<EduProDashboardProps> = ({
               {isBatchRunning ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Batch Scoring Folder...</span>
+                  <span>Starting…</span>
                 </>
               ) : (
                 <>
                   <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Run Batch Scoring (M14.7)</span>
+                  <span>Score all open documents</span>
                 </>
               )}
             </button>
           </div>
         </div>
 
-        {/* Batch Success Banner */}
-        {batchSuccessNotice && (
-          <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center justify-between animate-in fade-in">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Batch check completed: 4 documents evaluated for AI likelihood and similarity indexing.</span>
-            </div>
+        {batchNotice && (
+          <div role="status" className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-200 flex items-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-elite-600 shrink-0" />
+            <span>{batchNotice}</span>
           </div>
         )}
 
-        {/* Throughput & Quality Snapshot Analytics (M14.5, M14.6) */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-              Avg Turnaround
-            </span>
-            <div className="text-2xl font-black text-slate-800 dark:text-white mt-1">
-              3.8 hrs
+        {/* Counts taken from the documents on the board */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: "Open documents", value: String(openCount), note: `${documents.length} in total` },
+            { label: "In review", value: String(inReview), note: "being worked on now" },
+            {
+              label: "Average machine-like score",
+              value: avgAi === null ? "n/a" : `${avgAi}%`,
+              note: avgAi === null ? "no scored documents yet" : `over ${scored.length} scored document${scored.length === 1 ? "" : "s"}`,
+            },
+            { label: "Being scored", value: String(waiting), note: waiting ? "results arrive in the editor" : "nothing waiting" },
+          ].map((card) => (
+            <div key={card.label} className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">{card.label}</span>
+              <div className="text-2xl font-black text-slate-800 dark:text-white mt-1">{card.value}</div>
+              <span className="text-[11px] text-slate-500 mt-1 block">{card.note}</span>
             </div>
-            <span className="text-[11px] text-emerald-600 flex items-center gap-0.5 mt-1">
-              <Clock className="w-3 h-3" /> Under 24h SLA target
-            </span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-              Avg AI Score Drop
-            </span>
-            <div className="text-2xl font-black text-emerald-600 mt-1">
-              -42%
-            </div>
-            <span className="text-[11px] text-slate-500 mt-1 block">
-              Across all accepted rewrites
-            </span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-              Rewrite Acceptance Rate
-            </span>
-            <div className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-              88.4%
-            </div>
-            <span className="text-[11px] text-slate-500 mt-1 block">
-              High stylistic match
-            </span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-              Active Client Folders
-            </span>
-            <div className="text-2xl font-black text-slate-800 dark:text-white mt-1">
-              6 Folders
-            </div>
-            <span className="text-[11px] text-slate-500 mt-1 block">
-              Up to 40 active documents
-            </span>
-          </div>
-        </div>
-
-        {/* Folder Switcher */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-          <span className="font-semibold text-slate-500 flex items-center gap-1 shrink-0">
-            <Folder className="w-3.5 h-3.5" /> Folder:
-          </span>
-          {["Undergraduate Theses 2026", "Medical Ethics Cohort", "Journal Submissions (Spring)"].map((f) => (
-            <button
-              key={f}
-              onClick={() => setActiveFolder(f)}
-              className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all ${
-                activeFolder === f
-                  ? "bg-indigo-600 text-white font-semibold shadow-xs"
-                  : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-              }`}
-            >
-              {f}
-            </button>
           ))}
-          <button className="px-2 py-1.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 hover:text-indigo-600 flex items-center gap-1">
-            <Plus className="w-3.5 h-3.5" /> New Folder
-          </button>
         </div>
 
-        {/* 4-Column Kanban Document Board (M14.3) */}
+        {/* Kanban board */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
           {columns.map((col) => {
             const docsInColumn = documents.filter((d) => d.stage === col.stage);
@@ -206,11 +167,11 @@ export const EduProDashboard: React.FC<EduProDashboardProps> = ({
 
                       <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[11px]">
                         <span className="font-bold text-amber-500">
-                          {Math.round((doc.overallAiScore || 0) * 100)}% AI
+                          {doc.status === "scanning" ? "Scoring…" : `${Math.round((doc.overallAiScore || 0) * 100)}% machine-like`}
                         </span>
-                        <span className="font-bold text-blue-600">
-                          {doc.similarityScore || 0}% Sim
-                        </span>
+                        {doc.similarityScore ? (
+                          <span className="font-bold text-blue-600">{doc.similarityScore}% Sim</span>
+                        ) : null}
                       </div>
 
                       {/* Move Stage Selector */}

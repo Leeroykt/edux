@@ -6,6 +6,8 @@ import {
   DocumentSentence,
   SuggestionCandidate
 } from "@edux/schema";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { EditorBottomBar } from "./EditorBottomBar";
 import { AcademicFigure } from "./AcademicFigure";
 import { HelpTooltip } from "../ui/HelpTooltip";
@@ -28,13 +30,6 @@ import {
   FileText,
   FolderOpen
 } from "lucide-react";
-
-export interface InsertedElement {
-  id: string;
-  type: "image" | "table";
-  afterParagraphIndex: number;
-  data: any;
-}
 
 interface DocumentEditorProps {
   paragraphs: DocumentParagraphNode[];
@@ -68,11 +63,10 @@ interface DocumentEditorProps {
   isInspectorOpen: boolean;
   onToggleInspector: () => void;
   // Inserted rich media elements
-  insertedElements: InsertedElement[];
-  onMoveElementUp: (id: string) => void;
-  onMoveElementDown: (id: string) => void;
-  onUpdateElement: (id: string, partialData: any) => void;
-  onDeleteElement: (id: string) => void;
+  onNodeMove: (id: string, direction: "up" | "down") => void;
+  onNodeUpdate: (id: string, patch: Partial<DocumentParagraphNode>) => void;
+  onNodeDelete: (id: string) => void;
+  onTableCellEdit: (id: string, row: number, col: number, text: string) => void;
   // Paper Theme & Typography
   paperTheme: "white" | "dark";
   onTogglePaperTheme: () => void;
@@ -84,6 +78,18 @@ interface DocumentEditorProps {
   wordCount: number;
   pageCount: number;
   isSampleDocument?: boolean;
+  /** The toolbar above already shows mode and counts. */
+  hideStatusHeader?: boolean;
+  /** True while the background scan is still producing scores. */
+  isScanning?: boolean;
+  /** True until the first document has loaded. */
+  isLoading?: boolean;
+  /** LaTeX of the sample document's displayed equation. */
+  equationLatex?: string;
+  /** Sentences being re-scored after an applied rewrite. */
+  rescoring?: Record<string, boolean>;
+  /** Progress or error strip shown under the status header. */
+  scanBanner?: React.ReactNode;
 }
 
 const ACADEMIC_SYNONYMS: Record<string, string[]> = {
@@ -129,11 +135,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   suggestionsMap,
   isInspectorOpen,
   onToggleInspector,
-  insertedElements,
-  onMoveElementUp,
-  onMoveElementDown,
-  onUpdateElement,
-  onDeleteElement,
+  onNodeMove,
+  onNodeUpdate,
+  onNodeDelete,
+  onTableCellEdit,
   paperTheme,
   onTogglePaperTheme,
   fontFamily,
@@ -144,9 +149,29 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   wordCount,
   pageCount,
   isSampleDocument = false,
+  hideStatusHeader = false,
+  isScanning = false,
+  isLoading = false,
+  equationLatex = "",
+  rescoring = {},
+  scanBanner = null,
 }) => {
   const [hoveredSentenceId, setHoveredSentenceId] = useState<string | null>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(100);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const updateCurrentPage = useCallback(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const top = box.getBoundingClientRect().top + 120;
+    let found = 1;
+    box.querySelectorAll<HTMLElement>("article[data-page]").forEach((el) => {
+      if (el.getBoundingClientRect().top <= top) found = Number(el.dataset.page) || found;
+    });
+    setCurrentPage(found);
+  }, []);
 
   // Floating Selection Bubble State
   const [floatingBubble, setFloatingBubble] = useState<{
@@ -256,7 +281,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               onSelectSentence(sentence);
             }
           }}
-          className="inline-block mx-0.5 my-0.5 px-1 py-0.5 rounded-xs humanised-preview-span text-emerald-950 dark:text-emerald-100 transition-all cursor-pointer group"
+          className="inline-block mx-0.5 my-0.5 px-1 py-0.5 rounded-xs humanised-preview-span transition-all cursor-pointer group"
           title="Click to view alternate rewrites"
         >
           <span>{topCandidate.text}</span>
@@ -279,7 +304,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <span
           key={sentence.id}
           onClick={() => onSelectSentence(sentence)}
-          className={`cursor-text ${isSelected ? "ring-2 ring-elite-500 bg-elite-50 dark:bg-elite-950/70 rounded-xs" : ""}`}
+          className={`cursor-text ${isSelected ? "sentence-selected" : ""}`}
         >
           {sentence.formattedHtml ? (
             <span dangerouslySetInnerHTML={{ __html: sentence.formattedHtml }} />
@@ -294,14 +319,20 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     let spanClasses = "transition-all duration-150 inline relative rounded-xs px-0.5 my-0.5 cursor-pointer ";
 
     if (isSelected) {
-      spanClasses += " ring-2 ring-elite-500 bg-elite-50 dark:bg-elite-950/70 ";
+      spanClasses += " sentence-selected ";
     } else if (isHovered) {
-      spanClasses += " bg-slate-100 dark:bg-slate-800 ";
+      spanClasses += " sentence-hover ";
     }
+
+    const isPending =
+      !sentence.locked &&
+      !sentence.score &&
+      ((isScanning && sentence.text.split(/\s+/).filter(Boolean).length >= 8) || rescoring[sentence.id]);
+    if (isPending) spanClasses += " ai-pending ";
 
     if (isAiFlagged) {
       if (sentence.score?.band === "likely_machine") {
-        spanClasses += " ai-flagged-machine text-slate-900 dark:text-slate-100 ";
+        spanClasses += " ai-flagged-machine ";
       } else {
         spanClasses += " ai-flagged-uncertain ";
       }
@@ -321,7 +352,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         className={spanClasses}
         title={
           isAiFlagged
-            ? `${Math.round((sentence.score?.score || 0) * 100)}% AI likelihood • Click to inspect & humanize`
+            ? `${Math.round((sentence.score?.score || 0) * 100)}% AI likelihood • Click to inspect & rewrite`
+            : isPending
+            ? "Scoring…"
             : undefined
         }
       >
@@ -367,7 +400,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       // Academic A4 sheet capacity: ~520 words per page or explicit page break before section
       const shouldBreak =
         currentPageItems.length > 0 &&
-        (p.pageBreakBefore || (currentWords + pWordCount > 520 && pWordCount > 0));
+        (p.pageBreakBefore || (currentWords + pWordCount > 520 && pWordCount > 0 && pWordCount <= 520));
 
       if (shouldBreak) {
         result.push({
@@ -395,7 +428,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   return (
     <div
       ref={editorContainerRef}
-      className="flex-1 flex flex-col h-[calc(100vh-4rem)] overflow-hidden bg-slate-100/90 dark:bg-slate-950/80 relative"
+      className="flex-1 min-w-0 flex flex-col h-full overflow-hidden bg-slate-100 dark:bg-slate-950 relative"
     >
       {/* Floating Selection Bubble Toolbar */}
       {floatingBubble && (
@@ -508,7 +541,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       )}
 
       {/* Post-Upload Announcement Banner */}
-      {!isHumanisedScanned ? (
+      {hideStatusHeader ? null : !isHumanisedScanned ? (
         <div className="bg-gradient-to-r from-elite-600 via-indigo-600 to-teal-600 text-white px-6 py-2.5 flex items-center justify-between gap-4 shadow-sm z-10 shrink-0 select-none">
           <div className="flex items-center gap-2.5">
             <Sparkles className="w-4 h-4 text-white" />
@@ -550,8 +583,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               </span>
             </span>
             <span className="text-slate-300 dark:text-slate-700">|</span>
-            <span className="text-xs text-slate-500 font-medium">
-              {flaggedSentences.length} sentences flagged • {pages.length} Pages Active
+            <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
+              {flaggedSentences.length} flagged
+              <span className="hidden sm:inline"> • {pages.length} {pages.length === 1 ? "page" : "pages"}</span>
             </span>
           </div>
 
@@ -592,20 +626,36 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       )}
 
+      {scanBanner}
+
       {/* Multi-Page Scrollable A4 Canvas Area */}
-      <div className="flex-1 overflow-y-auto py-8 px-3 sm:px-6 lg:px-8 xl:px-10 flex flex-col items-center xl:items-start 2xl:items-center gap-8">
+      <div
+        ref={scrollRef}
+        onScroll={updateCurrentPage}
+        className="flex-1 overflow-y-auto py-8 px-3 sm:px-6 lg:px-8 xl:px-10 flex flex-col items-center xl:items-start 2xl:items-center gap-8"
+      >
         {pages.map((page) => (
           <article
             key={page.pageNumber}
+            data-page={page.pageNumber}
             className={`word-a4-page ${
               paperTheme === "dark" ? "word-a4-page-dark" : ""
             } leading-relaxed text-[16px] flex flex-col mx-auto xl:mx-0 2xl:mx-auto`}
             style={{
               fontFamily: fontFamily,
+              zoom: zoom / 100,
             }}
           >
             {/* Page Paragraphs & Sentences (No artificial injected headers or footers) */}
             <div className="space-y-4 flex-1 min-h-[720px] pb-6">
+              {isLoading && paragraphs.length === 0 && (
+                <div aria-busy="true" aria-label="Loading document" className="space-y-3 pt-10">
+                  <div className="ai-pending h-8 w-2/3 mx-auto" />
+                  {Array.from({ length: 14 }).map((_, i) => (
+                    <div key={i} className="ai-pending h-3.5" style={{ width: `${88 - ((i * 7) % 24)}%` }} />
+                  ))}
+                </div>
+              )}
               {page.items.map(({ p, originalIdx }) => {
                 // 0. Preserved Empty Line for Title Page & Chapter Layout
                 if (p.isEmptyLine) {
@@ -619,9 +669,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   return (
                     <div key={p.id} className={`my-3 ${hAlign}`}>
                       <h2
-                        className={`font-bold tracking-tight text-slate-900 dark:text-white ${
+                        className={`font-bold tracking-tight ${
                           level === 1
-                            ? "text-2xl sm:text-3xl mt-6 mb-3 border-b border-slate-200 dark:border-slate-800 pb-2"
+                            ? "text-2xl sm:text-3xl mt-6 mb-3 paper-rule pb-2"
                             : level === 2
                             ? "text-xl sm:text-2xl mt-5 mb-2"
                             : "text-lg font-bold mt-4 mb-1.5"
@@ -637,24 +687,65 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 // 2. Table Elements
                 if (p.type === "table") {
                   return (
-                    <div key={p.id} className="overflow-x-auto my-5 select-none">
-                      <table className="word-table w-full">
-                        {p.tableData && p.tableData.length > 0 ? (
-                          <tbody>
-                            {p.tableData.map((row, rIdx) => (
-                              <tr key={rIdx} className={rIdx === 0 ? "bg-slate-100/70 dark:bg-slate-800/80 font-bold" : ""}>
-                                {row.map((cell, cIdx) => (
-                                  <td key={cIdx} className="border border-slate-300 dark:border-slate-700 px-3.5 py-2 text-xs sm:text-sm">
-                                    {cell}
-                                  </td>
-                                ))}
+                    <div key={p.id} className="my-5 relative group">
+                      <div className="flex justify-end gap-1 pb-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity select-none">
+                        <button
+                          type="button"
+                          onClick={() => onNodeMove(p.id, "up")}
+                          className="text-[11px] px-2 py-0.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          aria-label="Move table up"
+                        >
+                          Up
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onNodeMove(p.id, "down")}
+                          className="text-[11px] px-2 py-0.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          aria-label="Move table down"
+                        >
+                          Down
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onNodeDelete(p.id)}
+                          className="text-[11px] font-bold px-2 py-0.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          aria-label="Remove table"
+                        >
+                          Remove table
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="word-table w-full">
+                          {p.tableData && p.tableData.length > 0 ? (
+                            <tbody>
+                              {p.tableData.map((row, rIdx) => (
+                                <tr key={rIdx} className={rIdx === 0 ? "paper-th font-bold" : ""}>
+                                  {row.map((cell, cIdx) => (
+                                    <td
+                                      key={cIdx}
+                                      contentEditable
+                                      suppressContentEditableWarning
+                                      onBlur={(e) => {
+                                        const text = e.currentTarget.textContent || "";
+                                        if (text !== cell) onTableCellEdit(p.id, rIdx, cIdx, text);
+                                      }}
+                                      className="border border-slate-400/50 px-3.5 py-2 text-xs sm:text-sm outline-none focus:bg-elite-500/10 min-w-[4rem]"
+                                    >
+                                      {cell}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          ) : p.rawHtml ? (
+                            <tbody>
+                              <tr>
+                                <td dangerouslySetInnerHTML={{ __html: p.rawHtml }} />
                               </tr>
-                            ))}
-                          </tbody>
-                        ) : p.rawHtml ? (
-                          <div dangerouslySetInnerHTML={{ __html: p.rawHtml }} />
-                        ) : null}
-                      </table>
+                            </tbody>
+                          ) : null}
+                        </table>
+                      </div>
                     </div>
                   );
                 }
@@ -678,7 +769,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   return (
                     <blockquote
                       key={p.id}
-                      className="border-l-4 border-elite-500 pl-4 py-1.5 my-4 italic text-slate-700 dark:text-slate-300 bg-slate-50/70 dark:bg-slate-900/40 rounded-r-xl"
+                      className="border-l-4 border-elite-500 pl-4 py-1.5 my-4 italic paper-quote rounded-r-xl"
                     >
                       {p.sentences.map(renderSentenceSpan)}
                     </blockquote>
@@ -687,22 +778,29 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
                 // 5. Embedded Figures & Images (Natural Word rendering: no fake captions or card borders)
                 if (p.type === "image") {
-                  const imgAlign = p.alignment === "center" ? "text-center" : p.alignment === "right" ? "text-right" : "text-left";
+                  const idx = paragraphs.findIndex((n) => n.id === p.id);
+                  const figAlign = p.widthPercent === 100 && p.alignment === "justify" ? "full" : p.alignment === "justify" ? "center" : p.alignment || "center";
                   return (
-                    <figure key={p.id} className={`my-4 ${imgAlign}`}>
-                      {p.imageUrl && (
-                        <img
-                          src={p.imageUrl}
-                          alt={p.imageCaption || ""}
-                          className="max-h-96 mx-auto object-contain select-none"
-                        />
-                      )}
-                      {p.imageCaption && (
-                        <figcaption className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium">
-                          {p.imageCaption}
-                        </figcaption>
-                      )}
-                    </figure>
+                    <div key={p.id} className="clear-both">
+                      <AcademicFigure
+                        id={p.id}
+                        url={p.imageUrl || ""}
+                        caption={p.imageCaption}
+                        align={figAlign}
+                        widthPercent={p.widthPercent || 75}
+                        canMoveUp={idx > 0}
+                        canMoveDown={idx < paragraphs.length - 1}
+                        onMoveUp={() => onNodeMove(p.id, "up")}
+                        onMoveDown={() => onNodeMove(p.id, "down")}
+                        onUpdateImage={(url) => onNodeUpdate(p.id, { imageUrl: url })}
+                        onUpdateCaption={(cap) => onNodeUpdate(p.id, { imageCaption: cap })}
+                        onUpdateAlign={(a) =>
+                          onNodeUpdate(p.id, a === "full" ? { alignment: "justify", widthPercent: 100 } : { alignment: a })
+                        }
+                        onUpdateWidth={(w) => onNodeUpdate(p.id, { widthPercent: w })}
+                        onDelete={() => onNodeDelete(p.id)}
+                      />
+                    </div>
                   );
                 }
 
@@ -721,87 +819,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                     <div className={`${pAlign} leading-relaxed`}>
                       {p.sentences.map(renderSentenceSpan)}
                     </div>
-
-                    {/* Render Inserted Elements (Academic Figures & Tables) */}
-                    {insertedElements
-                      .filter((el) => el.afterParagraphIndex === originalIdx)
-                      .map((el) => {
-                        if (el.type === "image") {
-                          return (
-                            <AcademicFigure
-                              key={el.id}
-                              id={el.id}
-                              url={el.data.url}
-                              caption={el.data.caption}
-                              align={el.data.align || "center"}
-                              widthPercent={el.data.widthPercent || 75}
-                              canMoveUp={originalIdx > 0}
-                              canMoveDown={originalIdx < paragraphs.length - 1}
-                              onMoveUp={() => onMoveElementUp(el.id)}
-                              onMoveDown={() => onMoveElementDown(el.id)}
-                              onUpdateImage={(newUrl) =>
-                                onUpdateElement(el.id, { url: newUrl })
-                              }
-                              onUpdateCaption={(newCap) =>
-                                onUpdateElement(el.id, { caption: newCap })
-                              }
-                              onUpdateAlign={(newAlign) =>
-                                onUpdateElement(el.id, { align: newAlign })
-                              }
-                              onUpdateWidth={(newW) =>
-                                onUpdateElement(el.id, { widthPercent: newW })
-                              }
-                              onDelete={() => onDeleteElement(el.id)}
-                            />
-                          );
-                        }
-                        if (el.type === "table") {
-                          return (
-                            <div
-                              key={el.id}
-                              contentEditable={false}
-                              className="overflow-x-auto my-4 select-none relative group"
-                            >
-                              <div className="flex items-center justify-between pb-1.5 px-1 text-xs text-slate-500">
-                                <span className="font-semibold text-[11px] text-slate-500">
-                                  Table ({el.data?.rows || 3} rows x {el.data?.cols || 3} cols)
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onDeleteElement(el.id);
-                                  }}
-                                  className="text-rose-600 hover:text-rose-700 dark:text-rose-400 text-xs font-bold px-2 py-0.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                                >
-                                  Remove Table
-                                </button>
-                              </div>
-                              <table className="word-table">
-                                <thead>
-                                  <tr>
-                                    {Array.from({ length: el.data.cols }).map((_, c) => (
-                                      <th key={c}>Column {c + 1}</th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {Array.from({ length: el.data.rows - 1 }).map((_, r) => (
-                                    <tr key={r}>
-                                      {Array.from({ length: el.data.cols }).map((_, c) => (
-                                        <td key={c}>
-                                          Data cell {r + 1},{c + 1}
-                                        </td>
-                                      ))}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })}
                   </div>
                 );
               })}
@@ -811,14 +828,23 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 <div
                   contentEditable={false}
                   onClick={onOpenEquationModal}
-                  className="my-6 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-elite-400 cursor-pointer transition-all group flex flex-col items-center justify-center select-none"
+                  className="my-6 p-4 paper-card hover:border-elite-400 cursor-pointer transition-colors group flex flex-col items-center justify-center select-none"
                 >
                   <div className="text-xs font-sans text-slate-400 mb-2 flex items-center gap-1.5">
-                    <Sigma className="w-3.5 h-3.5 text-elite-600" /> Equation 1 (Protected OMML • Click to edit in LaTeX)
+                    <Sigma className="w-3.5 h-3.5 text-elite-600" /> Equation 1 (protected from rewrites • click to edit)
                   </div>
-                  <div className="text-base sm:text-lg font-mono tracking-wider text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 px-5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-xs group-hover:shadow-sm text-center">
-                    {"Attention(Q, K, V) = softmax\\left(\\frac{Q K^T}{\\sqrt{d_k}}\\right) V"}
-                  </div>
+                  <div
+                    className="px-5 py-2.5 paper-card overflow-x-auto max-w-full"
+                    dangerouslySetInnerHTML={{
+                      __html: (() => {
+                        try {
+                          return katex.renderToString(equationLatex, { displayMode: true, throwOnError: false });
+                        } catch {
+                          return "";
+                        }
+                      })(),
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -842,6 +868,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         canRedo={historyRedoLength > 0}
         wordCount={wordCount}
         pageCount={pages.length}
+        currentPage={currentPage}
+        zoomLevel={zoom}
+        onZoomChange={setZoom}
         isSaving={isSaving}
       />
     </div>
