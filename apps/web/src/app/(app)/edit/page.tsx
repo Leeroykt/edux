@@ -25,7 +25,8 @@ import { getActiveDocument, setActiveDocument } from "../../../services/storage/
 import { useScan } from "../../../hooks/useScan";
 import { useSession } from "../../../hooks/useSession";
 import { useConfirm, useToast } from "../../../components/ui/feedback";
-import { convertSpelling, findSpellingIssues, dialectLabel } from "../../../lib/dialect";
+import { sanitizeHtml } from "../../../lib/formatting";
+import { convertSpelling, findSpellingIssues, dialectLabel, detectDialect } from "../../../lib/dialect";
 import { EquationMap, keepsEquations } from "../../../lib/equations";
 import { hasFormatting, reconcile } from "../../../lib/editing";
 import { splitSentenceTexts } from "../../../lib/sentences";
@@ -514,10 +515,19 @@ export default function WordEditorPage() {
     }
   };
 
-  // Formatting execCommand
-  const handleExecCommand = (command: string, value?: string) => {
-    document.execCommand(command, false, value);
+  /** Saves a formatting change on the sentences it touched. Formatting is not a rewrite, so nothing is re-scored. */
+  const handleFormatSentences = (updates: { id: string; html: string | undefined }[]) => {
+    const byId = new Map(updates.map((u) => [u.id, u.html]));
+    applyNodes(
+      paragraphsRef.current.map((p) =>
+        p.sentences.some((s) => byId.has(s.id))
+          ? { ...p, sentences: p.sentences.map((s) => (byId.has(s.id) ? { ...s, formattedHtml: byId.get(s.id) } : s)) }
+          : p
+      )
+    );
   };
+
+  const handleExecCommand = (_command: string, _value?: string) => {};
 
   /** Writes new text into a sentence, then re-scores it in the background. */
   const replaceSentenceText = (sentenceId: string, text: string, suggestionId?: string) => {
@@ -790,6 +800,15 @@ export default function WordEditorPage() {
       [next[i], next[j]] = [next[j], next[i]];
       return next.map((p, k) => ({ ...p, orderNo: k + 1 }));
     });
+    // The block may land on another page, so follow it and flash it so it never looks lost.
+    setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-node="${CSS.escape(id)}"]`);
+      if (!el) return;
+      el.scrollIntoView({ block: "center", behavior: "auto" });
+      el.classList.remove("node-moved");
+      void el.offsetWidth;
+      el.classList.add("node-moved");
+    }, 80);
   };
 
   const handleNodeUpdate = (id: string, patch: Partial<DocumentParagraphNode>) => {
@@ -826,6 +845,8 @@ export default function WordEditorPage() {
     apiClient.toggleSentenceLock(sentenceId).catch((err) => console.warn("API toggle lock error:", err));
   };
 
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
   const handleDocumentUploaded = (
     doc: DocumentMeta,
     parsedParagraphs: DocumentParagraphNode[],
@@ -843,6 +864,18 @@ export default function WordEditorPage() {
     setHumaniseViewMode("original_flags");
     setScanDocId(doc.id);
     setScanRunKey((k) => k + 1);
+
+    // Follow the document's own English rather than the browser's guess, and say so.
+    const reading = detectDialect(
+      parsedParagraphs.flatMap((p) => [...p.sentences.map((s) => s.text), ...(p.tableData?.flat() ?? [])]).join(" ")
+    );
+    if (reading.dialect && reading.dialect !== prefsRef.current.dialect) {
+      setPrefs({ dialect: reading.dialect });
+      toast.show(
+        `This reads as ${dialectLabel(reading.dialect)} (${reading.dialect === "en-GB" ? reading.gb : reading.us} spellings against ${reading.dialect === "en-GB" ? reading.us : reading.gb}), so I switched to it.`,
+        { kind: "info", ms: 7000 }
+      );
+    }
   };
 
   const flaggedSentences = paragraphs
@@ -973,7 +1006,7 @@ export default function WordEditorPage() {
     }
 
     const texts = splitSentenceTexts(clean);
-    const single = texts.length === 1 && hasFormatting(html) ? html.trim() : undefined;
+    const single = texts.length === 1 && hasFormatting(html) ? sanitizeHtml(clean, html.trim()) : undefined;
     const result = reconcile(node.sentences, texts, node.id, idx, () => newSentenceId(node.id), single);
     if (!result.dirty) return;
 
@@ -1241,6 +1274,7 @@ export default function WordEditorPage() {
           fontFamily={fontFamily}
           fontSize={fontSize}
           onExecCommand={handleExecCommand}
+          onFormatSentences={handleFormatSentences}
           similarityScore={documentMeta?.similarityScore ?? 0}
           isSaving={isSaving}
           wordCount={documentMeta?.wordCount || 0}

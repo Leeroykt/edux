@@ -11,7 +11,8 @@ import "katex/dist/katex.min.css";
 import { EquationMap, TOKEN_REGEX, hasEquation } from "../../lib/equations";
 import { EditorBottomBar } from "./EditorBottomBar";
 import { EditableParagraph } from "./EditableParagraph";
-import { EQ_ATTR, caretFromPoint, offsetOf } from "../../lib/editing";
+import { EQ_ATTR, caretFromPoint, lengthOf, offsetOf, selectOffsets } from "../../lib/editing";
+import { FONT_CHOICES, FormatOp, HIGHLIGHTS, SIZE_CHOICES, TEXT_COLOURS, formatRange, rangeHas } from "../../lib/formatting";
 import { splitSentenceTexts } from "../../lib/sentences";
 import { AcademicFigure } from "./AcademicFigure";
 import { HelpTooltip } from "../ui/HelpTooltip";
@@ -77,6 +78,8 @@ interface DocumentEditorProps {
   fontFamily: string;
   fontSize: string;
   onExecCommand: (command: string, value?: string) => void;
+  /** Saves new formatting on the sentences a selection touched. */
+  onFormatSentences: (updates: { id: string; html: string | undefined }[]) => void;
   similarityScore: number;
   isSaving: boolean;
   wordCount: number;
@@ -159,6 +162,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   fontFamily,
   fontSize,
   onExecCommand,
+  onFormatSentences,
   similarityScore,
   isSaving,
   wordCount,
@@ -258,6 +262,63 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     };
   }, [updateSelectionBubble]);
 
+  const [formatMenu, setFormatMenu] = useState<"color" | "bg" | "more" | null>(null);
+  useEffect(() => {
+    if (!floatingBubble) setFormatMenu(null);
+  }, [floatingBubble]);
+
+  /** Applies a formatting change to whatever is selected, across as many sentences as it spans. */
+  const applyFormat = (op: FormatOp) => {
+    const sel = window.getSelection();
+    const scope = scrollRef.current;
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !scope) return;
+    const range = sel.getRangeAt(0);
+    const bodies = Array.from(scope.querySelectorAll<HTMLElement>("[data-body], [data-sid]")).filter((el) => range.intersectsNode(el));
+    const all = paragraphs.flatMap((p) => p.sentences);
+
+    const targets: { el: HTMLElement; id: string; from: number; to: number; text: string; html?: string }[] = [];
+    for (const el of bodies) {
+      const id = el.dataset.body ?? el.dataset.sid;
+      const s = id ? all.find((x) => x.id === id) : undefined;
+      if (!id || !s || s.locked) continue;
+      const from = el.contains(range.startContainer) ? offsetOf(el, range.startContainer, range.startOffset) : 0;
+      const to = el.contains(range.endContainer) ? offsetOf(el, range.endContainer, range.endOffset) : lengthOf(el);
+      if (to > from) targets.push({ el, id, from, to, text: s.text, html: s.formattedHtml });
+    }
+    if (targets.length === 0) return;
+
+    // A switch is on for everything or off for everything, never half and half.
+    let resolved = op;
+    if (op.type === "toggle") {
+      const key = op.key;
+      resolved = { type: "toggle", key, on: !targets.every((t) => rangeHas(t.text, t.html, t.from, t.to, key)) };
+    }
+
+    const updates = targets.map((t) => ({ id: t.id, html: formatRange(t.text, t.html, t.from, t.to, resolved) }));
+    onFormatSentences(updates);
+
+    // The page redraws the sentences, so put the selection back to let formats be stacked.
+    const first = targets[0];
+    const last = targets[targets.length - 1];
+    const wasEditing = !!first.el.closest("[data-editing]");
+    if (wasEditing) {
+      // A paragraph being typed in is the browser's, so its sentences are redrawn by hand.
+      targets.forEach((t, i) => {
+        const html = (updates[i].html ?? escapeHtml(t.text)).replace(TOKEN_REGEX(), (_m, id: string) => equationHtml(id));
+        t.el.innerHTML = html;
+      });
+    }
+    const restore = () => {
+      const find = (id: string) => scope.querySelector<HTMLElement>(`[data-body="${id}"], [data-sid="${id}"]`);
+      const a = find(first.id);
+      const b = find(last.id);
+      if (a && b) selectOffsets(a, first.from, b, last.to);
+      setTimeout(updateSelectionBubble, 30);
+    };
+    if (wasEditing) restore();
+    else setTimeout(restore, 40);
+  };
+
   const handleHumaniseWordClick = () => {
     if (!floatingBubble) return;
     const cleanWord = floatingBubble.text.toLowerCase().replace(/[^a-z\s]/g, "").trim();
@@ -305,9 +366,15 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const renderBody = (s: DocumentSentence): React.ReactNode => {
     if (hasEquation(s.text)) {
       const html = (s.formattedHtml ?? escapeHtml(s.text)).replace(TOKEN_REGEX(), (_m, id: string) => equationHtml(id));
-      return <span dangerouslySetInnerHTML={{ __html: html }} />;
+      return <span key={`${s.id}-e-${s.formattedHtml ? 1 : 0}`} data-body={s.id} dangerouslySetInnerHTML={{ __html: html }} />;
     }
-    return s.formattedHtml ? <span dangerouslySetInnerHTML={{ __html: s.formattedHtml }} /> : s.text;
+    return s.formattedHtml ? (
+      <span key={`${s.id}-f`} data-body={s.id} dangerouslySetInnerHTML={{ __html: s.formattedHtml }} />
+    ) : (
+      <span key={`${s.id}-p`} data-body={s.id}>
+        {s.text}
+      </span>
+    );
   };
 
   /** 1, 2, 3 for each numbered list, restarting after anything that is not part of the list. */
@@ -502,47 +569,71 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     .flatMap((p) => p.sentences)
     .filter((s) => s.score && s.score.score >= aiThreshold && !s.locked);
 
-  // Group paragraphs into realistic multi-page A4 canvas sheets
+  // Real block heights, measured after drawing, so a page break falls where the text really fills a sheet.
+  const [measured, setMeasured] = useState<Record<string, number>>({});
+  const pagesRef = useRef<{ items: { p: DocumentParagraphNode }[] }[]>([]);
+
+  // Group paragraphs into A4 sheets. Measured heights decide the breaks; a block not yet measured is estimated.
   const pages = React.useMemo(() => {
+    type Item = { p: DocumentParagraphNode; originalIdx: number };
     if (!paragraphs || paragraphs.length === 0) {
-      return [{ pageNumber: 1, items: [] as { p: DocumentParagraphNode; originalIdx: number }[] }];
+      return [{ pageNumber: 1, items: [] as Item[] }];
     }
-    const result: { pageNumber: number; items: { p: DocumentParagraphNode; originalIdx: number }[] }[] = [];
-    let currentPageItems: { p: DocumentParagraphNode; originalIdx: number }[] = [];
-    let currentWords = 0;
+    const PAGE_CAPACITY = 900; // 1056px sheet minus its top and bottom margins
+    const GAP = 16;
+    const estimate = (p: DocumentParagraphNode) => {
+      const words = p.sentences.reduce((acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length, 0);
+      if (p.type === "table") return Math.max(1, p.tableData?.length ?? 1) * 38;
+      if (p.type === "image") return Math.round(380 * ((p.widthPercent || 75) / 100)) + 40;
+      if (p.type === "heading") return 70;
+      return Math.max(28, words * 2.6);
+    };
+
+    const result: { pageNumber: number; items: Item[] }[] = [];
+    let current: Item[] = [];
+    let used = 0;
+    const flush = () => {
+      if (current.length) result.push({ pageNumber: result.length + 1, items: current });
+      current = [];
+      used = 0;
+    };
 
     paragraphs.forEach((p, idx) => {
-      const pWordCount = p.sentences.reduce(
-        (acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length,
-        0
-      );
-      // Academic A4 sheet capacity: ~520 words per page or explicit page break before section
-      const shouldBreak =
-        currentPageItems.length > 0 &&
-        (p.pageBreakBefore || (currentWords + pWordCount > 520 && pWordCount > 0 && pWordCount <= 520));
-
-      if (shouldBreak) {
-        result.push({
-          pageNumber: result.length + 1,
-          items: currentPageItems,
-        });
-        currentPageItems = [{ p, originalIdx: idx }];
-        currentWords = pWordCount;
-      } else {
-        currentPageItems.push({ p, originalIdx: idx });
-        currentWords += pWordCount;
-      }
+      const h = (measured[p.id] ?? estimate(p)) + GAP;
+      const next = paragraphs[idx + 1];
+      // A heading never ends a page on its own: it needs room for what follows it.
+      const needs = p.type === "heading" && next ? h + Math.min(measured[next.id] ?? estimate(next), 140) : h;
+      const fits = used + needs <= PAGE_CAPACITY;
+      if (current.length > 0 && (p.pageBreakBefore || !fits)) flush();
+      current.push({ p, originalIdx: idx });
+      used += h;
     });
-
-    if (currentPageItems.length > 0) {
-      result.push({
-        pageNumber: result.length + 1,
-        items: currentPageItems,
-      });
-    }
-
+    flush();
     return result;
-  }, [paragraphs]);
+  }, [paragraphs, measured]);
+  pagesRef.current = pages;
+
+  // Measure each drawn block. Skipped while typing so a paragraph is never moved out from under the caret.
+  React.useLayoutEffect(() => {
+    if (editing) return;
+    const root = scrollRef.current;
+    if (!root) return;
+    const next: Record<string, number> = {};
+    root.querySelectorAll<HTMLElement>("article.word-a4-page").forEach((article, i) => {
+      const holder = article.querySelector<HTMLElement>(".space-y-4");
+      const items = pagesRef.current[i]?.items;
+      if (!holder || !items) return;
+      Array.from(holder.children).forEach((el, k) => {
+        const id = items[k]?.p.id;
+        if (id) next[id] = (el as HTMLElement).offsetHeight;
+      });
+    });
+    setMeasured((prev) => {
+      const keys = Object.keys(next);
+      const same = keys.length === Object.keys(prev).length && keys.every((k) => Math.abs((prev[k] ?? -9) - next[k]) < 2);
+      return same ? prev : next;
+    });
+  }, [pages, editing, fontFamily, paperTheme]);
 
   return (
     <div
@@ -558,67 +649,226 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           }}
           className="fixed z-50 -translate-x-1/2 -translate-y-full mb-2 bg-slate-900/95 dark:bg-slate-800/95 text-white backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 px-2 py-1.5 flex items-center gap-1 text-xs select-none animate-in fade-in zoom-in-95"
         >
-          {/* Bold */}
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onExecCommand("bold");
-            }}
-            className="p-1.5 hover:bg-white/20 rounded-lg font-bold"
-            title="Bold (Ctrl+B)"
-          >
-            <Bold className="w-3.5 h-3.5" />
-          </button>
+          {([
+            ["b", Bold, "Bold (Ctrl+B)", "font-bold"],
+            ["i", Italic, "Italic (Ctrl+I)", "italic"],
+            ["u", Underline, "Underline (Ctrl+U)", "underline"],
+            ["s", Strikethrough, "Strikethrough", "line-through"],
+          ] as const).map(([key, Icon, label, cls]) => (
+            <button
+              key={key}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                applyFormat({ type: "toggle", key });
+              }}
+              className={`p-1.5 hover:bg-white/20 rounded-lg ${cls}`}
+              title={label}
+              aria-label={label}
+            >
+              <Icon className="w-3.5 h-3.5" />
+            </button>
+          ))}
 
-          {/* Italic */}
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onExecCommand("italic");
-            }}
-            className="p-1.5 hover:bg-white/20 rounded-lg italic font-serif"
-            title="Italic (Ctrl+I)"
-          >
-            <Italic className="w-3.5 h-3.5" />
-          </button>
+          <div className="w-px h-4 bg-slate-700 mx-0.5" />
 
-          {/* Underline */}
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onExecCommand("underline");
-            }}
-            className="p-1.5 hover:bg-white/20 rounded-lg underline"
-            title="Underline (Ctrl+U)"
-          >
-            <Underline className="w-3.5 h-3.5" />
-          </button>
+          {/* Text colour */}
+          <div className="relative">
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setFormatMenu((m) => (m === "color" ? null : "color"));
+              }}
+              className="p-1.5 hover:bg-white/20 rounded-lg font-bold flex items-center gap-0.5"
+              title="Text colour"
+              aria-label="Text colour"
+              aria-expanded={formatMenu === "color"}
+            >
+              <span className="text-[13px] leading-none border-b-2 border-rose-400">A</span>
+            </button>
+            {formatMenu === "color" && (
+              <div className="absolute top-full left-0 mt-2 p-2 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl w-[148px] z-50">
+                <div className="grid grid-cols-5 gap-1.5">
+                  {TEXT_COLOURS.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      title={c.name}
+                      aria-label={`Text colour ${c.name}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyFormat({ type: "set", key: "color", value: c.value });
+                        setFormatMenu(null);
+                      }}
+                      className="w-5 h-5 rounded-full border border-white/30 hover:scale-110 transition-transform"
+                      style={{ backgroundColor: c.value }}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyFormat({ type: "set", key: "color", value: null });
+                    setFormatMenu(null);
+                  }}
+                  className="mt-2 w-full text-[11px] py-1 rounded-lg hover:bg-white/15 text-slate-200"
+                >
+                  Automatic colour
+                </button>
+              </div>
+            )}
+          </div>
 
-          {/* Strikethrough */}
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onExecCommand("strikeThrough");
-            }}
-            className="p-1.5 hover:bg-white/20 rounded-lg line-through"
-            title="Strikethrough"
-          >
-            <Strikethrough className="w-3.5 h-3.5" />
-          </button>
+          {/* Highlight */}
+          <div className="relative">
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setFormatMenu((m) => (m === "bg" ? null : "bg"));
+              }}
+              className="p-1.5 hover:bg-white/20 rounded-lg text-amber-300"
+              title="Highlight"
+              aria-label="Highlight"
+              aria-expanded={formatMenu === "bg"}
+            >
+              <Highlighter className="w-3.5 h-3.5" />
+            </button>
+            {formatMenu === "bg" && (
+              <div className="absolute top-full left-0 mt-2 p-2 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl w-[132px] z-50">
+                <div className="grid grid-cols-4 gap-1.5">
+                  {HIGHLIGHTS.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      title={c.name}
+                      aria-label={`Highlight ${c.name}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applyFormat({ type: "set", key: "bg", value: c.value });
+                        setFormatMenu(null);
+                      }}
+                      className="w-5 h-5 rounded-md border border-white/30 hover:scale-110 transition-transform"
+                      style={{ backgroundColor: c.value }}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyFormat({ type: "set", key: "bg", value: null });
+                    setFormatMenu(null);
+                  }}
+                  className="mt-2 w-full text-[11px] py-1 rounded-lg hover:bg-white/15 text-slate-200"
+                >
+                  No highlight
+                </button>
+              </div>
+            )}
+          </div>
 
-          {/* Yellow Highlight Marker */}
-          <button
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onExecCommand("hiliteColor", "#fef08a");
-            }}
-            className="p-1.5 hover:bg-white/20 rounded-lg text-amber-300"
-            title="Highlight Selection"
-          >
-            <Highlighter className="w-3.5 h-3.5" />
-          </button>
+          {/* Font, size, super and subscript, clear */}
+          <div className="relative">
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setFormatMenu((m) => (m === "more" ? null : "more"));
+              }}
+              className="px-1.5 py-1 hover:bg-white/20 rounded-lg font-semibold text-[11px]"
+              title="Font, size and more"
+              aria-label="Font, size and more"
+              aria-expanded={formatMenu === "more"}
+            >
+              Aa
+            </button>
+            {formatMenu === "more" && (
+              <div className="absolute top-full right-0 mt-2 p-2 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl w-[210px] z-50 space-y-2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-slate-400 px-1 pb-1">Font</div>
+                  <div className="max-h-[132px] overflow-y-auto">
+                    {FONT_CHOICES.map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          applyFormat({ type: "set", key: "font", value: f });
+                          setFormatMenu(null);
+                        }}
+                        className="block w-full text-left text-[12px] px-2 py-1 rounded-lg hover:bg-white/15"
+                        style={{ fontFamily: f }}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-slate-400 px-1 pb-1">Size (pt)</div>
+                  <div className="flex flex-wrap gap-1">
+                    {SIZE_CHOICES.map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          applyFormat({ type: "set", key: "size", value: n });
+                          setFormatMenu(null);
+                        }}
+                        className="min-w-[30px] text-[12px] px-1.5 py-1 rounded-lg hover:bg-white/15"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-1 pt-1 border-t border-slate-700">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyFormat({ type: "toggle", key: "sup" });
+                      setFormatMenu(null);
+                    }}
+                    className="flex-1 text-[12px] py-1 rounded-lg hover:bg-white/15"
+                    title="Superscript"
+                  >
+                    x²
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyFormat({ type: "toggle", key: "sub" });
+                      setFormatMenu(null);
+                    }}
+                    className="flex-1 text-[12px] py-1 rounded-lg hover:bg-white/15"
+                    title="Subscript"
+                  >
+                    x₂
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyFormat({ type: "clear" });
+                      setFormatMenu(null);
+                    }}
+                    className="flex-1 text-[12px] py-1 rounded-lg hover:bg-white/15"
+                    title="Clear formatting"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
-          <div className="w-px h-4 bg-slate-700 mx-1" />
+          <div className="w-px h-4 bg-slate-700 mx-0.5" />
 
           {/* ✨ Humanise Word / Selection */}
           <button
@@ -759,7 +1009,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             data-page={page.pageNumber}
             className={`word-a4-page ${
               paperTheme === "dark" ? "word-a4-page-dark" : ""
-            } leading-relaxed text-[16px] flex flex-col mx-auto xl:mx-0 2xl:mx-auto`}
+            } leading-relaxed text-[16px] flex flex-col shrink-0 mx-auto xl:mx-0 2xl:mx-auto`}
             style={{
               fontFamily: fontFamily,
               zoom: zoom / 100,
@@ -806,12 +1056,13 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 // 2. Table Elements
                 if (p.type === "table") {
                   return (
-                    <div key={p.id} className="my-5 relative group">
+                    <div key={p.id} data-node={p.id} className="my-5 relative group">
                       <div className="flex justify-end gap-1 pb-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity select-none">
                         <button
                           type="button"
                           onClick={() => onNodeMove(p.id, "up")}
-                          className="text-[11px] px-2 py-0.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          disabled={originalIdx === 0}
+                          className="text-[11px] px-2 py-0.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none"
                           aria-label="Move table up"
                         >
                           Up
@@ -819,7 +1070,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                         <button
                           type="button"
                           onClick={() => onNodeMove(p.id, "down")}
-                          className="text-[11px] px-2 py-0.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          disabled={originalIdx >= paragraphs.length - 1}
+                          className="text-[11px] px-2 py-0.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none"
                           aria-label="Move table down"
                         >
                           Down
@@ -904,7 +1156,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   const idx = paragraphs.findIndex((n) => n.id === p.id);
                   const figAlign = p.widthPercent === 100 && p.alignment === "justify" ? "full" : p.alignment === "justify" ? "center" : p.alignment || "center";
                   return (
-                    <div key={p.id} className="clear-both">
+                    <div key={p.id} data-node={p.id} className="clear-both">
                       <AcademicFigure
                         id={p.id}
                         url={p.imageUrl || ""}

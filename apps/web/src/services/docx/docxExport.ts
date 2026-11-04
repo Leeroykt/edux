@@ -12,11 +12,13 @@ import {
   TableCell,
   WidthType,
   AlignmentType,
+ ShadingType,
 } from "docx";
 import { saveAs } from "file-saver";
 import { DocumentParagraphNode, DocumentSentence } from "@edux/schema";
 import { EquationMap, tokensOf } from "../../lib/equations";
 import { restoreEquations } from "./equations";
+import { Fmt, parseRuns } from "../../lib/formatting";
 
 export interface DocxExportOptions {
   exportMode?: "clean" | "tracked";
@@ -77,33 +79,9 @@ interface RunStyle {
   underline?: boolean;
 }
 
-/** Reads <strong>, <em> and <u> from a sentence's saved HTML so formatting survives export. */
-function styledSegments(sentence: DocumentSentence): { text: string; style: RunStyle }[] {
-  if (!sentence.formattedHtml || typeof DOMParser === "undefined") {
-    return [{ text: sentence.text, style: {} }];
-  }
-  const dom = new DOMParser().parseFromString(`<div>${sentence.formattedHtml}</div>`, "text/html");
-  const segments: { text: string; style: RunStyle }[] = [];
-
-  const walk = (node: Node, style: RunStyle) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent || "";
-      if (text) segments.push({ text, style });
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
-    const tag = (node as Element).tagName.toLowerCase();
-    const next: RunStyle = { ...style };
-    if (tag === "strong" || tag === "b") next.bold = true;
-    if (tag === "em" || tag === "i") next.italics = true;
-    if (tag === "u") next.underline = true;
-    node.childNodes.forEach((child) => walk(child, next));
-  };
-
-  dom.body.firstElementChild?.childNodes.forEach((child) => walk(child, {}));
-  const joined = segments.map((s) => s.text).join("");
-  // If the saved HTML no longer matches the text, trust the text.
-  return joined.trim() === sentence.text.trim() ? segments : [{ text: sentence.text, style: {} }];
+/** A sentence's saved look as runs of text, each with its own formatting. */
+function styledSegments(sentence: DocumentSentence): { text: string; style: Fmt }[] {
+  return parseRuns(sentence.text, sentence.formattedHtml).map((r) => ({ text: r.text, style: r.f }));
 }
 
 function imageSize(dataUri: string): Promise<{ width: number; height: number }> {
@@ -172,9 +150,16 @@ export async function exportDocumentToDocx(
               text: piece,
               font: fontFamily,
               size,
-              bold: extra.bold || seg.style.bold,
-              italics: extra.italics || seg.style.italics,
-              underline: seg.style.underline ? {} : undefined,
+              ...(seg.style.font ? { font: seg.style.font } : {}),
+              ...(seg.style.size ? { size: Math.round(seg.style.size * 2) } : {}),
+              bold: extra.bold || seg.style.b,
+              italics: extra.italics || seg.style.i,
+              underline: seg.style.u ? {} : undefined,
+              strike: seg.style.s || undefined,
+              superScript: seg.style.sup || undefined,
+              subScript: seg.style.sub || undefined,
+              color: seg.style.color ? seg.style.color.slice(1).toUpperCase() : undefined,
+              shading: seg.style.bg ? { type: ShadingType.CLEAR, fill: seg.style.bg.slice(1).toUpperCase(), color: "auto" } : undefined,
             })
           );
         });

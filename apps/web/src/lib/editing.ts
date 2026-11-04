@@ -18,7 +18,7 @@ const isEquation = (n: Node): boolean => n.nodeType === 1 && (n as HTMLElement).
 const isAtomic = (n: Node): boolean =>
   n.nodeType === 1 && (isEquation(n) || (n as HTMLElement).getAttribute("contenteditable") === "false");
 
-const FORMAT_TAGS = new Set(["B", "STRONG", "I", "EM", "U", "SUP", "SUB"]);
+const FORMAT_TAGS = new Set(["B", "STRONG", "I", "EM", "U", "S", "STRIKE", "SUP", "SUB"]);
 
 export function escapeHtml(t: string): string {
   return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -75,8 +75,8 @@ export function caretOffset(root: HTMLElement): number | null {
   return offsetOf(root, sel.focusNode!, sel.focusOffset);
 }
 
-/** Puts the caret at a text position inside `root`. Positions past the end go to the end. */
-export function placeCaret(root: HTMLElement, offset: number) {
+/** The DOM position for a text position inside `root`. Positions past the end give null. */
+export function positionAt(root: HTMLElement, offset: number): { node: Node; off: number } | null {
   let remaining = offset;
   let target: { node: Node; off: number } | null = null;
 
@@ -111,11 +111,29 @@ export function placeCaret(root: HTMLElement, offset: number) {
     return false;
   };
   walk(root);
+  return target;
+}
 
+/** Puts the caret at a text position inside `root`. Positions past the end go to the end. */
+export function placeCaret(root: HTMLElement, offset: number) {
+  const target = positionAt(root, offset);
   const range = document.createRange();
-  if (target) range.setStart((target as { node: Node }).node, (target as { off: number }).off);
+  if (target) range.setStart(target.node, target.off);
   else range.selectNodeContents(root);
   range.collapse(target ? true : false);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+/** Selects from a text position in one element to a text position in another. */
+export function selectOffsets(startRoot: HTMLElement, from: number, endRoot: HTMLElement, to: number) {
+  const a = positionAt(startRoot, from);
+  const b = positionAt(endRoot, to) ?? { node: endRoot, off: endRoot.childNodes.length };
+  if (!a) return;
+  const range = document.createRange();
+  range.setStart(a.node, a.off);
+  range.setEnd(b.node, b.off);
   const sel = window.getSelection();
   sel?.removeAllRanges();
   sel?.addRange(range);
@@ -163,15 +181,19 @@ export function readEditable(root: HTMLElement): { text: string; html: string } 
       return;
     }
     const keep = FORMAT_TAGS.has(el.tagName);
+    // Colour, highlight, font and size live in a style attribute. formatting.ts cleans it before it is saved.
+    const style = el.tagName === "SPAN" ? el.getAttribute("style") : null;
     if (keep) html += `<${el.tagName.toLowerCase()}>`;
+    if (style) html += `<span style="${style.replace(/"/g, "&quot;")}">`;
     el.childNodes.forEach(walk);
+    if (style) html += "</span>";
     if (keep) html += `</${el.tagName.toLowerCase()}>`;
   };
   root.childNodes.forEach(walk);
   return { text, html };
 }
 
-export const hasFormatting = (html: string) => /<(b|strong|i|em|u|sup|sub)>/i.test(html);
+export const hasFormatting = (html: string) => /<(b|strong|i|em|u|s|strike|sup|sub)>|<span style=/i.test(html);
 
 /** The HTML a paragraph is edited as: its sentences in order, equations drawn and protected. */
 export function buildEditableHtml(sentences: DocumentSentence[], equationHtml: (id: string) => string): string {

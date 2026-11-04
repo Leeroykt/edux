@@ -125,7 +125,9 @@ const FIXED: [string, string][] = [
   ["sulphur", "sulfur"], ["sulphate", "sulfate"], ["gaol", "jail"], ["pyjamas", "pajamas"], ["maths", "math"],
   ["cosy", "cozy"], ["yoghurt", "yogurt"], ["jewellery", "jewelry"], ["storey", "story"],
 ];
-for (const [gb, us] of FIXED) add(gb, us, gb === "storey" || gb === "maths");
+// The American form of these is ordinary British English too, so it is never flagged when writing in British.
+const SHARED_US_FORM = new Set(["storey", "maths", "whilst", "amongst", "towards", "learnt", "spelt", "burnt", "dreamt"]);
+for (const [gb, us] of FIXED) add(gb, us, SHARED_US_FORM.has(gb));
 
 /* ------------------------------------------------------------------ */
 /* Matching                                                            */
@@ -181,4 +183,29 @@ export function convertSpelling(text: string, target: Dialect): { text: string; 
     return to ? matchCase(word, to) : word;
   });
   return { text: converted, changes };
+}
+
+export interface DialectReading {
+  /** The variant most of the spellings belong to, or null when it is too close or too thin to call. */
+  dialect: Dialect | null;
+  /** Count of words spelt the British way and the American way. Words spelt the same in both are not counted. */
+  gb: number;
+  us: number;
+}
+
+/** Reads which English a piece of writing is in from the spellings that differ between the two. */
+export function detectDialect(text: string): DialectReading {
+  const count = (target: Dialect) => {
+    const { pattern } = direction(target);
+    pattern.lastIndex = 0;
+    return (text.match(pattern) ?? []).length;
+  };
+  // Words that must change to reach American are British, and the other way round.
+  const gb = count("en-US");
+  const us = count("en-GB");
+  const total = gb + us;
+  if (total < 3) return { dialect: null, gb, us };
+  if (gb / total >= 0.7) return { dialect: "en-GB", gb, us };
+  if (us / total >= 0.7) return { dialect: "en-US", gb, us };
+  return { dialect: null, gb, us };
 }

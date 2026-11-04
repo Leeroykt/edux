@@ -233,3 +233,11 @@ h1, h2, .brand-font, .font-raleway {
 /* Typing */
 .sent-locked { background: rgba(100, 116, 139, 0.1); border-radius: 2px; cursor: not-allowed; }
 .eq-atom { cursor: default; user-select: all; }
+
+/* A block that was just moved flashes once so the writer can see where it went. */
+@keyframes node-moved {
+  from { background-color: rgba(52, 129, 137, 0.28); box-shadow: 0 0 0 4px rgba(52, 129, 137, 0.28); }
+  to { background-color: transparent; box-shadow: 0 0 0 4px transparent; }
+}
+.node-moved { animation: node-moved 1.4s ease-out; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { .node-moved { animation: none; outline: 2px solid #348189; } }
