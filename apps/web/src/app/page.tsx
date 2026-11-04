@@ -1,911 +1,511 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Sparkles,
   ArrowRight,
-  ShieldCheck,
+  BookOpenCheck,
+  Briefcase,
   Check,
-  Copy,
   FileText,
-  Zap,
-  Sun,
+  Globe2,
+  GraduationCap,
+  Languages,
   Moon,
-  ChevronRight,
-  GraduationCap
+  ScanSearch,
+  ShieldCheck,
+  Sparkles,
+  Sun,
+  Wand2,
 } from "lucide-react";
 import { Logo } from "../components/brand/Logo";
 import { AuthModal } from "../components/navigation/AuthModal";
-import { UploadDocxModal } from "../components/editor/UploadDocxModal";
 import { apiClient } from "../services/api/apiClient";
-import { User } from "@edux/schema";
 import { useTheme } from "../services/theme/themeContext";
+import { User } from "@edux/schema";
+import { DIALECTS, Dialect, convertSpelling, guessDialect } from "../lib/dialect";
+import { checkSentence, WritingIssue } from "../lib/writingChecks";
 
-const SAMPLE_AI_TEXT =
-  "Furthermore, it is essential to consider the implications of automated algorithmic heuristics within contemporary research. Moreover, machine learning models have demonstrated unprecedented capability in synthesizing vast corpuses of data. In conclusion, delving into this pivotal technological landscape is crucial for advancing pedagogical paradigms.";
+const SAMPLE =
+  "Furthermore, it is essential to consider the implications of automated heuristics within contemporary research. We organize the the data by colour and analyse it carefully. The results were very very clear, and a unique idea emerged from the centre of the programme.";
+const WORD_LIMIT = 300;
 
-export default function StealthLandingPage() {
+interface Row {
+  text: string;
+  score: number | null;
+  reasons: string[];
+  spelling: { from: string; to: string }[];
+  grammar: WritingIssue[];
+  suggestion?: string;
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/)
+    .filter(Boolean);
+}
+
+const FEATURES = [
+  { icon: BookOpenCheck, title: "Grammar and clarity", text: "Repeated words, a/an, spacing, run-on sentences and filler, each with a one-click fix." },
+  { icon: Languages, title: "Your English, consistently", text: "Choose British or American. Mixed spelling is flagged and converted in one confirmed step, with undo." },
+  { icon: ScanSearch, title: "Machine-likeness, honestly", text: "Each sentence gets an estimate with reasons. It is a prompt to look again, never a verdict on who wrote it." },
+  { icon: Wand2, title: "Rewrites you approve", text: "Suggestions are checked against the original meaning. Nothing changes until you accept it." },
+  { icon: FileText, title: "Word in, Word out", text: "Upload a .docx and export it back, with every accepted change as a real tracked change." },
+  { icon: Sparkles, title: "A calm place to work", text: "A quiet page, a focus mode, and everything else one keystroke away." },
+];
+
+const AUDIENCES = [
+  { icon: GraduationCap, title: "Students and researchers", text: "Polish a thesis chapter or journal paper, keep citations and headings, and hand it in with confidence." },
+  { icon: BookOpenCheck, title: "Academics and editors", text: "Review other people's drafts, keep a record of every change, and return clean, tracked files." },
+  { icon: Briefcase, title: "Executives and teams", text: "Reports, briefs and proposals that read clearly, in the English your readers expect." },
+];
+
+export default function LandingPage() {
   const router = useRouter();
   const { resolvedTheme, toggleTheme } = useTheme();
-  const isDarkMode = resolvedTheme === "dark";
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
 
-  // Live Humanizer Playground State
-  const [activeTab, setActiveTab] = useState<"humanizer" | "detector">("humanizer");
-  const [inputText, setInputText] = useState(SAMPLE_AI_TEXT);
-  const [outputText, setOutputText] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [processStep, setProcessStep] = useState("");
-  const [originalAiScore, setOriginalAiScore] = useState<number | null>(null);
-  const [humanizedAiScore, setHumanizedAiScore] = useState<number | null>(null);
-  const [selectedStyle, setSelectedStyle] = useState<"academic" | "immunity">("academic");
-  const [copied, setCopied] = useState(false);
+  const [text, setText] = useState(SAMPLE);
+  const [dialect, setDialect] = useState<Dialect>("en-GB");
+  const [rows, setRows] = useState<Row[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"check" | "rewrite" | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // AI Detector state
-  const [detectionResult, setDetectionResult] = useState<{
-    aiScore: number;
-    humanScore: number;
-    perplexity: number;
-    burstiness: number;
-    flaggedPhrases: string[];
-    summary: string;
-  } | null>(null);
-  const [isDetecting, setIsDetecting] = useState(false);
-  const [detectionStep, setDetectionStep] = useState("");
+  const words = useMemo(() => (text.trim() ? text.trim().split(/\s+/).length : 0), [text]);
+  const overLimit = words > WORD_LIMIT;
 
-  // Hero Card Demo State
-  const [heroCardHumanized, setHeroCardHumanized] = useState(false);
-  const [heroCardProcessing, setHeroCardProcessing] = useState(false);
-
-  // Guest limits
-  const GUEST_WORD_LIMIT = 300;
-  const wordCount = inputText.trim() ? inputText.trim().split(/\s+/).length : 0;
-  const isOverLimit = wordCount > GUEST_WORD_LIMIT;
-
-  // Check auth user safely in browser (zero 401s if guest)
   useEffect(() => {
-    try {
-      const user = apiClient.getCurrentUser();
-      if (user) {
-        setCurrentUser(user);
-      } else if (apiClient.getToken()) {
-        apiClient.getMe().then((res) => {
-          if (res?.user) setCurrentUser(res.user);
-        }).catch(() => {});
-      }
-    } catch {
-      // safe fallback
-    }
+    setDialect(guessDialect());
+    const cached = apiClient.getCurrentUser();
+    if (cached) setUser(cached);
+    else if (apiClient.getToken()) apiClient.getMe().then((r) => r?.user && setUser(r.user)).catch(() => {});
   }, []);
 
-  // Hero Card Demo Trigger
-  const handleToggleHeroCard = () => {
-    if (heroCardProcessing) return;
-    setHeroCardProcessing(true);
-    setTimeout(() => {
-      setHeroCardHumanized(!heroCardHumanized);
-      setHeroCardProcessing(false);
-    }, 800);
+  const openAuth = (mode: "login" | "register") => {
+    setAuthMode(mode);
+    setAuthOpen(true);
   };
 
-  // Run Live Humanizer
-  const handleHumanizeText = async () => {
-    if (!inputText.trim()) return;
-    setIsProcessing(true);
-    setProcessStep("Analyzing stylometric perplexity & burstiness...");
-
-    setTimeout(() => {
-      setProcessStep("Eliminating stock transitions ('furthermore', 'moreover', 'delve')...");
-    }, 400);
-
-    setTimeout(() => {
-      setProcessStep("Rebalancing clause cadence & academic voice...");
-    }, 800);
-
-    setTimeout(() => {
-      let transformed = inputText
-        .replace(/furthermore,?\s*/gi, "Specifically, ")
-        .replace(/moreover,?\s*/gi, "In addition, ")
-        .replace(/in conclusion,?\s*/gi, "Consequently, ")
-        .replace(/delving into/gi, "examining")
-        .replace(/delve into/gi, "examine")
-        .replace(/it is essential to note that/gi, "notably,")
-        .replace(/it is crucial to/gi, "scholars must")
-        .replace(/pivotal technological landscape/gi, "empirical field")
-        .replace(/testament to/gi, "evidence of")
-        .replace(/unprecedented capability/gi, "measurable efficiency");
-
-      if (selectedStyle === "academic") {
-        transformed = `Scholarly investigation demonstrates that ${transformed.charAt(0).toLowerCase() + transformed.slice(1)}`;
-      } else if (selectedStyle === "immunity") {
-        transformed = `We observe distinct empirical variations: ${transformed}`;
-      }
-
-      setOutputText(transformed);
-      setOriginalAiScore(89);
-      setHumanizedAiScore(4);
-      setIsProcessing(false);
-      setProcessStep("");
-    }, 1200);
-  };
-
-  // Run AI Detector
-  const handleDetectAi = async () => {
-    if (!inputText.trim()) return;
-    setIsDetecting(true);
-    setDetectionStep("Tokenizing n-gram frequency distribution...");
-
-    setTimeout(() => {
-      setDetectionStep("Calculating stylometric perplexity & burstiness...");
-    }, 350);
-
-    setTimeout(() => {
-      setDetectionStep("Scanning for Turnitin & GPTZero formulaic signatures...");
-    }, 700);
-
-    setTimeout(() => {
-      const lower = inputText.toLowerCase();
-      const detectedPhrases: string[] = [];
-      const stockTerms = [
-        "furthermore",
-        "moreover",
-        "in conclusion",
-        "delve",
-        "delving into",
-        "testament to",
-        "crucial",
-        "pivotal",
-        "landscape",
-        "unprecedented capability",
-        "it is essential",
-      ];
-      stockTerms.forEach((term) => {
-        if (lower.includes(term)) detectedPhrases.push(term);
+  const check = async () => {
+    if (!text.trim() || overLimit) return;
+    setBusy("check");
+    setError(null);
+    try {
+      const sentences = splitSentences(text);
+      const data = await apiClient.detectSentences({
+        documentId: "guest",
+        sentences: sentences.map((t, i) => ({ id: `g_${i}`, text: t })),
       });
-
-      const hasStock = detectedPhrases.length > 0;
-      const aiScore = hasStock
-        ? Math.min(96, 68 + detectedPhrases.length * 9)
-        : wordCount > 25
-        ? 42
-        : 12;
-      const humanScore = 100 - aiScore;
-      const perplexity = hasStock ? 22.4 : 64.8;
-      const burstiness = hasStock ? 16.2 : 58.7;
-
-      setDetectionResult({
-        aiScore,
-        humanScore,
-        perplexity,
-        burstiness,
-        flaggedPhrases: detectedPhrases.length > 0 ? detectedPhrases : ["Formulaic transition density"],
-        summary:
-          aiScore > 50
-            ? "High concentration of automated linguistic markers and low syntactic variance typical of LLMs."
-            : "Natural variation in clause complexity and vocabulary distribution characteristic of human authorship.",
-      });
-
-      setIsDetecting(false);
-      setDetectionStep("");
-    }, 1100);
-  };
-
-  // Copy output
-  const handleCopy = () => {
-    if (!outputText) return;
-    navigator.clipboard.writeText(outputText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Open in Word Editor
-  const handleOpenInEditor = () => {
-    if (!currentUser) {
-      setIsAuthModalOpen(true);
-      return;
+      const byId = new Map<string, any>((Array.isArray(data?.scores) ? data.scores : []).map((s: any) => [s.sentenceId, s]));
+      setRows(
+        sentences.map((t, i) => {
+          const sc = byId.get(`g_${i}`);
+          return {
+            text: t,
+            score: sc ? sc.score : null,
+            reasons: sc?.reasons ?? [],
+            spelling: convertSpelling(t, dialect).changes.map((c) => ({ from: c.from, to: c.to })),
+            grammar: checkSentence(t),
+          };
+        })
+      );
+      const engines: string[] = data?.engines || [];
+      setNote(
+        engines.includes("reference") || engines.length === 0
+          ? "Machine-likeness here comes from a simple built-in heuristic, so treat it as a rough hint."
+          : null
+      );
+    } catch (e: any) {
+      setError(e?.message || "Something went wrong. Please try again.");
+    } finally {
+      setBusy(null);
     }
-    if (typeof window !== "undefined" && outputText) {
-      window.sessionStorage.setItem("editor_imported_text", outputText);
-    }
-    router.push("/edit");
   };
+
+  const suggest = async () => {
+    if (!rows) return;
+    setBusy("rewrite");
+    setError(null);
+    try {
+      const next = [...rows];
+      let i = 0;
+      const worker = async () => {
+        while (i < next.length) {
+          const idx = i++;
+          const r = next[idx];
+          if ((r.score ?? 0) < 0.45 && r.spelling.length === 0 && r.grammar.length === 0) continue;
+          try {
+            const res = await apiClient.generateModelRewrites({
+              sentenceId: `g_${idx}`,
+              text: r.text,
+              contextParagraph: text,
+              tone: "academic",
+              dialect,
+            });
+            const top = res?.suggestions?.[0]?.text;
+            if (top && top !== r.text) next[idx] = { ...r, suggestion: top };
+          } catch {
+            // one failure should not stop the rest
+          }
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      setRows(next);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const use = (idx: number) => {
+    if (!rows?.[idx]?.suggestion) return;
+    setText((t) => t.replace(rows[idx].text, rows[idx].suggestion as string));
+    setRows(null);
+  };
+
+  const flagged = rows?.filter((r) => (r.score ?? 0) >= 0.45).length ?? 0;
+  const issues = rows?.reduce((n, r) => n + r.spelling.length + r.grammar.length, 0) ?? 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#07090e] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
-      {/* ---------------- 1. TOP NAVBAR (PROPER SPACING & PADDING) ---------------- */}
-      <header className="h-16 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-[#07090e]/90 backdrop-blur-md sticky top-0 z-50 px-6 sm:px-10 flex items-center justify-between transition-colors">
-        {/* Original Logo (User's preferred brand) */}
-        <Link href="/" className="hover:opacity-90 transition-opacity">
-          <Logo size="sm" showTagline={false} />
-        </Link>
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded-lg focus:bg-elite-600 focus:text-white focus:px-4 focus:py-2">
+        Skip to main content
+      </a>
 
-        {/* Center / Right Nav Items */}
-        <div className="flex items-center gap-3 sm:gap-6 text-xs font-semibold text-slate-600 dark:text-slate-300">
-          <a
-            href="#try-it-now"
-            className="hidden md:inline hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-          >
-            AI Humanizer
-          </a>
-          <a
-            href="#try-it-now"
-            onClick={() => setActiveTab("detector")}
-            className="hidden md:inline hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-          >
-            AI Detector
-          </a>
-          <Link
-            href="/plans"
-            className="hidden sm:inline hover:text-slate-900 dark:hover:text-white transition-colors"
-          >
-            Pricing
+      {/* Header */}
+      <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-950/90 backdrop-blur">
+        <div className="max-w-6xl mx-auto h-16 px-5 flex items-center gap-6">
+          <Link href="/" aria-label="eduX home">
+            <Logo size="sm" />
           </Link>
-
-          {/* Theme Toggle (Light & Dark Mode) */}
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
-            title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-          >
-            {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
-          </button>
-
-          {/* Signed In vs Guest Nav */}
-          {currentUser ? (
-            <div className="flex items-center gap-3">
-              <Link
-                href="/dashboard"
-                className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 transition-colors"
-              >
-                Workspace
+          <nav aria-label="Page sections" className="hidden md:flex items-center gap-6 text-sm text-slate-600 dark:text-slate-300">
+            <a href="#how" className="hover:text-slate-900 dark:hover:text-white">How it works</a>
+            <a href="#try" className="hover:text-slate-900 dark:hover:text-white">Try it</a>
+            <a href="#plans" className="hover:text-slate-900 dark:hover:text-white">Plans</a>
+          </nav>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              aria-label={resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="p-2 rounded-xl text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800"
+            >
+              {resolvedTheme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            {user ? (
+              <Link href="/documents" className="rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-sm font-semibold px-4 py-2">
+                Open your documents
               </Link>
-              <Link
-                href="/profile"
-                className="flex items-center gap-2 pl-1 group cursor-pointer"
-                title="View Scholar Profile"
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-elite-600 to-teal-400 text-white flex items-center justify-center font-bold text-xs shadow-md group-hover:scale-105 transition-transform ring-2 ring-elite-200 dark:ring-slate-800">
-                  {currentUser.name.slice(0, 2).toUpperCase()}
-                </div>
-              </Link>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-xl text-slate-700 dark:text-slate-200 hover:text-elite-600 dark:hover:text-elite-400 hover:bg-elite-50/60 dark:hover:bg-slate-800/70 transition-colors cursor-pointer font-bold"
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="px-4 py-2 rounded-xl bg-elite-600 hover:bg-elite-500 text-white font-bold shadow-md shadow-elite-600/25 active:scale-95 transition-all cursor-pointer"
-              >
-                Get Started
-              </button>
-            </div>
-          )}
+            ) : (
+              <>
+                <button onClick={() => openAuth("login")} className="rounded-xl px-3.5 py-2 text-sm font-semibold hover:bg-slate-200/70 dark:hover:bg-slate-800">
+                  Sign in
+                </button>
+                <button onClick={() => openAuth("register")} className="rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-sm font-semibold px-4 py-2">
+                  Start free
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      {/* ---------------- 2. HERO SECTION ---------------- */}
-      <section className="relative pt-12 pb-20 px-6 sm:px-10 max-w-7xl mx-auto w-full overflow-hidden">
-        {/* Subtle background glow */}
-        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-elite-600/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute top-1/3 right-1/4 w-80 h-80 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center relative z-10">
-          {/* Left Hero Column */}
-          <div className="lg:col-span-7 space-y-6">
-            {/* Pill Badge */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-elite-50 dark:bg-elite-950/80 border border-elite-200 dark:border-elite-800 text-xs font-bold text-elite-700 dark:text-elite-300 shadow-xs">
-              <Sparkles className="w-3.5 h-3.5 text-elite-600 dark:text-elite-400" />
-              <span>Lossless Humanizer & Turnitin Immunity</span>
-            </div>
-
-            {/* Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-950 dark:text-white leading-[1.1]">
-              Humanize your <br />
-              <span className="bg-gradient-to-r from-elite-600 via-sky-600 to-teal-500 bg-clip-text text-transparent">AI writing</span>
+      <main id="main">
+        {/* Hero */}
+        <section className="max-w-6xl mx-auto px-5 pt-16 pb-20 grid lg:grid-cols-[1.05fr_1fr] gap-12 items-center">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-elite-700 dark:text-elite-300">For students, researchers and teams</p>
+            <h1 className="mt-4 font-serif text-5xl sm:text-6xl font-semibold tracking-tight text-slate-900 dark:text-white leading-[1.05]">
+              Clear, correct writing you can stand behind.
             </h1>
-
-            {/* Subtitle */}
-            <p className="text-slate-600 dark:text-slate-400 text-base sm:text-lg max-w-xl leading-relaxed">
-              eduX rewrites AI-generated content so it reads naturally human, polished, and ready to submit — preserving citations, academic voice, and docx formatting.
+            <p className="mt-6 text-lg leading-relaxed text-slate-600 dark:text-slate-300 max-w-xl">
+              eduX checks your grammar and clarity, keeps your spelling consistent in British or American English, and shows which sentences read as machine-written, with rewrites you approve one by one.
             </p>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-3.5 pt-2">
-              {currentUser ? (
-                <>
-                  <Link
-                    href="/dashboard"
-                    className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-sm font-bold shadow-lg shadow-elite-600/30 active:scale-95 transition-all cursor-pointer"
-                  >
-                    <span>Go to Workspace</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
-
-                  <Link
-                    href="/edit"
-                    className="px-6 py-3.5 rounded-xl bg-white hover:bg-elite-50/60 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-elite-600 dark:hover:text-elite-400 border border-slate-200 dark:border-slate-800 hover:border-elite-300 dark:hover:border-elite-700 text-sm font-bold transition-all cursor-pointer shadow-xs flex items-center gap-2"
-                  >
-                    <FileText className="w-4 h-4 text-elite-600" />
-                    <span>Open Word Editor</span>
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <a
-                    href="#try-it-now"
-                    className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-sm font-bold shadow-lg shadow-elite-600/30 active:scale-95 transition-all cursor-pointer"
-                  >
-                    <span>Start for Free</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </a>
-
-                  <button
-                    onClick={() => setIsAuthModalOpen(true)}
-                    className="px-6 py-3.5 rounded-xl bg-white hover:bg-elite-50/60 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-elite-600 dark:hover:text-elite-400 border border-slate-200 dark:border-slate-800 hover:border-elite-300 dark:hover:border-elite-700 text-sm font-bold transition-all cursor-pointer shadow-xs"
-                  >
-                    Sign In
-                  </button>
-                </>
-              )}
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => (user ? router.push("/documents") : openAuth("register"))}
+                className="inline-flex items-center gap-2 rounded-xl bg-elite-600 hover:bg-elite-700 text-white font-semibold px-6 py-3.5 shadow-sm"
+              >
+                {user ? "Open your documents" : "Start free"} <ArrowRight className="w-4 h-4" />
+              </button>
+              <a href="#try" className="rounded-xl border border-slate-300 dark:border-slate-600 font-semibold px-6 py-3.5 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+                Try it on a paragraph
+              </a>
             </div>
-
-            {/* Benefits Checkmarks */}
-            <div className="flex flex-wrap items-center gap-5 pt-3 text-xs font-medium text-slate-600 dark:text-slate-400">
-              <div className="flex items-center gap-1.5">
-                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 stroke-[3]" />
-                <span>Free plan available</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 stroke-[3]" />
-                <span>No credit card required</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 stroke-[3]" />
-                <span>Works instantly</span>
-              </div>
-            </div>
+            <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-500">
+              {["No credit card", "Works with Word files", "Your documents stay yours"].map((t) => (
+                <li key={t} className="flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-elite-600" /> {t}
+                </li>
+              ))}
+            </ul>
           </div>
 
-          {/* Right Hero Column: Interactive Hero Preview Card */}
-          <div className="lg:col-span-5">
-            <div className="relative rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1117] p-6 shadow-xl dark:shadow-2xl dark:shadow-black/80 overflow-hidden group transition-colors">
-              {/* Top Header inside preview card */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/80 text-xs">
-                <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-semibold">
-                  <span>🔍 Deep Scan</span>
-                </div>
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 font-bold text-[11px]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 animate-pulse" />
-                  <span>{heroCardHumanized ? "Humanized" : "Humanizing..."}</span>
-                </div>
+          {/* Illustration of the editor */}
+          <figure aria-label="Illustration of the editor" className="relative">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-page overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 text-xs text-slate-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+                <span className="ml-2 font-medium">Chapter 2, Methods.docx</span>
               </div>
-
-              {/* Faded Background Text */}
-              <div className="py-4 text-xs leading-relaxed text-slate-500 dark:text-slate-500 select-none">
-                {heroCardHumanized ? (
-                  <p className="text-slate-800 dark:text-slate-300 transition-colors">
-                    The expansion of distributed workplace structures has reshaped contemporary operational dynamics. Enterprises globally are systematically revising traditional office arrangements, instituting flexible remote models to enhance scholarly productivity and autonomy.
+              <div className="grid sm:grid-cols-[1.4fr_1fr]">
+                <div className="p-6 font-serif text-[15px] leading-7 bg-[#fffefc] dark:bg-[#1d2026]">
+                  <p>
+                    <span className="ai-flagged-machine">Furthermore, it is essential to recognise that the self-attention mechanism serves as the cornerstone of modern representations.</span>{" "}
+                    We <span className="rounded-sm bg-amber-200/60 dark:bg-amber-500/25 px-0.5">organize</span> the data by colour and test each model on held-out samples.{" "}
+                    <span className="ai-flagged-uncertain">The results were very, very clear.</span>
                   </p>
-                ) : (
-                  <p className="line-clamp-4 text-slate-600 dark:text-slate-500">
-                    The increasing prevalence of remote work has fundamentally transformed workplace dynamics. Organizations worldwide are reevaluating traditional office structures and policies. They are embracing flexible working arrangements for their employees. This shift has led to significant changes in how teams communicate and collaborate. Employees report higher satisfaction levels when given the autonomy to choose their work environment...
-                  </p>
-                )}
-              </div>
-
-              {/* Center Floating Bubble */}
-              <div className="my-2 flex justify-center">
-                <button
-                  onClick={handleToggleHeroCard}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-100 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700/80 shadow-md backdrop-blur-md text-xs font-bold text-slate-800 dark:text-slate-200 hover:text-elite-600 dark:hover:text-white transition-all cursor-pointer group-hover:scale-105"
-                  title="Click to toggle humanized preview"
-                >
-                  <Sparkles className="w-4 h-4 text-elite-600 dark:text-elite-400 animate-spin" />
-                  <span>{heroCardProcessing ? "Scanning..." : heroCardHumanized ? "Re-run Scan" : "Humanizing..."}</span>
-                </button>
-              </div>
-
-              {/* Circular Radial Score Widget */}
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-center gap-5">
-                <div className="relative w-16 h-16 flex items-center justify-center">
-                  <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                    <path
-                      className="text-slate-200 dark:text-slate-800"
-                      strokeWidth="3.5"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                    <path
-                      className={heroCardHumanized ? "text-emerald-500 transition-all duration-700" : "text-rose-500 transition-all duration-700"}
-                      strokeDasharray={heroCardHumanized ? "99, 100" : "6, 100"}
-                      strokeWidth="3.5"
-                      strokeLinecap="round"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                  </svg>
-                  <div className="absolute text-center">
-                    <span className="text-xs font-black text-slate-900 dark:text-white">
-                      {heroCardHumanized ? "99%" : "6%"}
-                    </span>
+                </div>
+                <div className="p-4 space-y-2.5 text-xs border-t sm:border-t-0 sm:border-l border-slate-100 dark:border-slate-800">
+                  <div className="font-semibold text-slate-900 dark:text-white">Review</div>
+                  <div className="rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 p-2.5">
+                    <div className="font-medium">organize → organise</div>
+                    <div className="text-slate-600 dark:text-slate-400">Spelling for British English</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-2.5">
+                    <div className="font-medium">Filler words</div>
+                    <div className="text-slate-600 dark:text-slate-400">“very, very” can be cut</div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-2.5">
+                    <div className="font-medium">Reads as machine-like</div>
+                    <div className="text-slate-600 dark:text-slate-400">72% estimate</div>
                   </div>
                 </div>
+              </div>
+            </div>
+            <figcaption className="mt-2 text-xs text-slate-500 text-center">Illustration</figcaption>
+          </figure>
+        </section>
 
-                <div className="flex flex-col">
-                  <span className="text-sm font-bold text-slate-900 dark:text-white">
-                    {heroCardHumanized ? "99% Human" : "6% Human"}
-                  </span>
-                  <span className={heroCardHumanized ? "text-xs font-semibold text-emerald-600 dark:text-emerald-400" : "text-xs font-semibold text-rose-600 dark:text-rose-400"}>
-                    {heroCardHumanized ? "Passed Human Check" : "AI Detected"}
-                  </span>
+        {/* How it works */}
+        <section id="how" className="border-y border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
+          <div className="max-w-6xl mx-auto px-5 py-20">
+            <h2 className="font-serif text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">Three steps, no surprises</h2>
+            <ol className="mt-10 grid md:grid-cols-3 gap-6">
+              {[
+                { n: 1, title: "Bring your draft", text: "Upload a Word file or paste text. Headings, lists and tables come with it." },
+                { n: 2, title: "See what needs attention", text: "Grammar, clarity, spelling for your English, and how machine-like each sentence reads." },
+                { n: 3, title: "Fix it your way", text: "Accept a suggested rewrite or edit by hand, undo anything, and export to Word with tracked changes." },
+              ].map((s) => (
+                <li key={s.n} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
+                  <div className="w-8 h-8 rounded-full bg-elite-600 text-white text-sm font-bold flex items-center justify-center">{s.n}</div>
+                  <h3 className="mt-4 text-lg font-semibold text-slate-900 dark:text-white">{s.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{s.text}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* Features */}
+        <section className="max-w-6xl mx-auto px-5 py-20">
+          <h2 className="font-serif text-4xl font-semibold tracking-tight text-slate-900 dark:text-white max-w-2xl">Everything a careful writer needs, in one quiet place</h2>
+          <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {FEATURES.map((f) => (
+              <div key={f.title} className="rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+                <div className="w-10 h-10 rounded-xl bg-elite-50 dark:bg-elite-950 text-elite-600 dark:text-elite-300 flex items-center justify-center">
+                  <f.icon className="w-5 h-5" />
                 </div>
+                <h3 className="mt-4 font-semibold text-slate-900 dark:text-white">{f.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{f.text}</p>
               </div>
-
-              {/* Dots Carousel Indicator */}
-              <div className="flex justify-center items-center gap-1.5 pt-4">
-                <span className="w-2 h-2 rounded-full bg-slate-900 dark:bg-white" />
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
-              </div>
-            </div>
+            ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ---------------- 3. "TRY IT NOW" LIVE INTERACTIVE WORKSPACE ---------------- */}
-      <section id="try-it-now" className="py-16 px-6 sm:px-10 max-w-7xl mx-auto w-full border-t border-slate-200 dark:border-slate-800/80">
-        <div className="text-center max-w-2xl mx-auto space-y-3 mb-10">
-          <div className="text-[11px] font-black uppercase tracking-widest text-elite-600 dark:text-elite-400">
-            TRY IT NOW
-          </div>
-          <h2 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-950 dark:text-white">
-            See how natural your writing reads
-          </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Paste any text below to check phrasing, rhythm, and flow. Free guest samples with zero account required.
-          </p>
-        </div>
+        {/* Try it */}
+        <section id="try" className="border-y border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
+          <div className="max-w-6xl mx-auto px-5 py-20">
+            <h2 className="font-serif text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">Try it on a paragraph</h2>
+            <p className="mt-3 text-slate-600 dark:text-slate-300 max-w-2xl">Paste up to {WORD_LIMIT} words. Nothing is saved, and no account is needed.</p>
 
-        {/* Humanizer / Detector Tool Container */}
-        <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1117] shadow-xl overflow-hidden transition-colors">
-          {/* Top Control Bar */}
-          <div className="p-4 sm:px-6 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 bg-slate-50/70 dark:bg-slate-900/40">
-            {/* Mode Tabs */}
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-200/80 dark:bg-slate-900 border border-slate-300/80 dark:border-slate-800">
-              <button
-                onClick={() => setActiveTab("humanizer")}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === "humanizer"
-                    ? "bg-elite-600 text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-elite-600 dark:hover:text-white"
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>AI Humanizer</span>
-              </button>
-              <button
-                onClick={() => setActiveTab("detector")}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === "detector"
-                    ? "bg-elite-600 text-white shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-elite-600 dark:hover:text-white"
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>AI Detector</span>
-              </button>
-            </div>
-
-            {/* Model Cadence Style */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline">Model Style:</span>
-              <div className="flex items-center gap-1 text-xs">
-                <button
-                  onClick={() => setSelectedStyle("academic")}
-                  className={`px-3 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                    selectedStyle === "academic"
-                      ? "bg-elite-100 dark:bg-elite-950/80 text-elite-700 dark:text-elite-300 border border-elite-300 dark:border-elite-800 font-bold"
-                      : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                >
-                  Academic (Oxford)
-                </button>
-                <button
-                  onClick={() => setSelectedStyle("immunity")}
-                  className={`px-3 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                    selectedStyle === "immunity"
-                      ? "bg-elite-100 dark:bg-elite-950/80 text-elite-700 dark:text-elite-300 border border-elite-300 dark:border-elite-800 font-bold"
-                      : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-                  }`}
-                >
-                  Turnitin Immunity
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Split Panes (Input & Output) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 dark:divide-slate-800">
-            {/* LEFT PANE: Input Text */}
-            <div className="p-5 sm:p-6 flex flex-col justify-between space-y-4">
-              <div>
-                <div className="flex items-center justify-between pb-3">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Input Text
-                  </span>
-                  <button
-                    onClick={() => setInputText(SAMPLE_AI_TEXT)}
-                    className="text-xs text-elite-600 dark:text-elite-400 hover:underline font-semibold cursor-pointer"
-                  >
-                    Load Sample AI Text
-                  </button>
+            <div className="mt-8 grid lg:grid-cols-2 gap-5">
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 flex flex-col">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <label htmlFor="try-text" className="text-sm font-semibold">Your text</label>
+                  <div role="radiogroup" aria-label="English variant" className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 text-xs font-semibold">
+                    {DIALECTS.map((d) => (
+                      <button
+                        key={d.id}
+                        role="radio"
+                        aria-checked={dialect === d.id}
+                        aria-label={d.label}
+                        onClick={() => {
+                          setDialect(d.id);
+                          setRows(null);
+                        }}
+                        className={`px-3 py-1 rounded-md flex items-center gap-1.5 ${dialect === d.id ? "bg-elite-600 text-white" : "text-slate-600 dark:text-slate-300"}`}
+                      >
+                        <Globe2 className="w-3 h-3" />
+                        {d.short}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-
                 <textarea
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  rows={8}
-                  placeholder={activeTab === "detector" ? "Paste text to scan for Turnitin & GPTZero AI patterns..." : "Paste your AI text here to humanize..."}
-                  className="w-full bg-transparent border-0 text-slate-900 dark:text-slate-200 text-sm leading-relaxed resize-none focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-600"
+                  id="try-text"
+                  value={text}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    setRows(null);
+                  }}
+                  rows={9}
+                  className="w-full flex-1 resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3.5 font-serif text-[15px] leading-7 outline-none focus:border-elite-500"
                 />
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <span className={`text-xs font-mono ${overLimit ? "text-rose-600 font-semibold" : "text-slate-600 dark:text-slate-400"}`}>
+                    {words} / {WORD_LIMIT} words
+                  </span>
+                  <button
+                    onClick={check}
+                    disabled={busy !== null || !text.trim() || overLimit}
+                    className="rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-sm font-semibold px-5 py-2.5 disabled:opacity-50"
+                  >
+                    {busy === "check" ? "Checking…" : "Check my text"}
+                  </button>
+                </div>
               </div>
 
-              {/* Bottom Footer inside Input Box */}
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-mono ${isOverLimit ? "text-rose-500 font-bold" : "text-slate-500 dark:text-slate-400"}`}>
-                    {wordCount} / {GUEST_WORD_LIMIT} words
-                  </span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                    Guest Free Limit
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {inputText && (
-                    <button
-                      onClick={() => setInputText("")}
-                      className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                    >
-                      Clear
-                    </button>
-                  )}
-
-                  {activeTab === "detector" ? (
-                    <button
-                      onClick={handleDetectAi}
-                      disabled={isDetecting || !inputText.trim()}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-xs font-bold shadow-md shadow-elite-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>{isDetecting ? "Scanning AI..." : "Detect AI 🔍"}</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleHumanizeText}
-                      disabled={isProcessing || !inputText.trim()}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-xs font-bold shadow-md shadow-elite-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>{isProcessing ? "Humanizing..." : "Humanize Text"}</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* RIGHT PANE: Output Result */}
-            <div className="p-5 sm:p-6 flex flex-col justify-between space-y-4 bg-slate-50/50 dark:bg-slate-900/20">
-              <div>
-                <div className="flex items-center justify-between pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      {activeTab === "detector" ? "AI Detection Diagnostic Report" : "Humanized Output"}
-                    </span>
-                    {activeTab === "detector" && detectionResult && (
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${detectionResult.aiScore > 50 ? "bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300 border border-rose-300 dark:border-rose-800" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/30"}`}>
-                        {detectionResult.aiScore}% AI Likelihood
-                      </span>
-                    )}
-                    {activeTab === "humanizer" && humanizedAiScore !== null && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
-                        98% Human Cadence
-                      </span>
-                    )}
-                  </div>
-
-                  {activeTab === "humanizer" && outputText && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleCopy}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
-                      >
-                        {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copied ? "Copied" : "Copy"}</span>
-                      </button>
-
-                      <button
-                        onClick={handleOpenInEditor}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-elite-600 hover:bg-elite-500 text-white text-xs font-bold transition-colors cursor-pointer"
-                        title="Open in full Word Editor"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        <span>Word Editor</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Output content area */}
-                {activeTab === "detector" ? (
-                  isDetecting ? (
-                    <div className="py-12 flex flex-col items-center justify-center space-y-3 text-center">
-                      <div className="w-8 h-8 rounded-full border-2 border-elite-600 border-t-transparent animate-spin" />
-                      <p className="text-xs font-bold text-slate-900 dark:text-slate-200 animate-pulse">
-                        {detectionStep || "Scanning stylometric features..."}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        Evaluating n-gram perplexity, variance & formulaic transitions
-                      </p>
-                    </div>
-                  ) : detectionResult ? (
-                    <div className="space-y-4">
-                      {/* Top Detection Gauge Banner */}
-                      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="relative w-14 h-14 shrink-0 flex items-center justify-center">
-                            <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                              <path
-                                className="text-slate-100 dark:text-slate-800"
-                                strokeWidth="4"
-                                stroke="currentColor"
-                                fill="none"
-                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                              />
-                              <path
-                                className={detectionResult.aiScore > 50 ? "text-rose-500" : "text-emerald-500"}
-                                strokeDasharray={`${detectionResult.aiScore}, 100`}
-                                strokeWidth="4"
-                                strokeLinecap="round"
-                                stroke="currentColor"
-                                fill="none"
-                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                              />
-                            </svg>
-                            <div className="absolute font-black text-xs text-slate-900 dark:text-white">
-                              {detectionResult.aiScore}%
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-sm font-bold text-slate-900 dark:text-white">
-                              {detectionResult.aiScore > 50 ? "AI-Generated Patterns Detected" : "Passed Human Check"}
-                            </div>
-                            <div className={`text-xs font-semibold ${detectionResult.aiScore > 50 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                              {detectionResult.aiScore > 50 ? `${detectionResult.aiScore}% Probability of Machine Text` : `${detectionResult.humanScore}% Likely Human Authorship`}
-                            </div>
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => {
-                            setActiveTab("humanizer");
-                            handleHumanizeText();
-                          }}
-                          className="px-3.5 py-2 rounded-xl bg-elite-600 hover:bg-elite-500 text-white text-xs font-bold shadow-md shadow-elite-600/25 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shrink-0"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Humanize Now</span>
-                        </button>
-                      </div>
-
-                      {/* Perplexity & Burstiness Metric Cards */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="p-3 rounded-xl bg-slate-100/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                            Perplexity Score
-                          </span>
-                          <div className="flex items-baseline gap-1.5">
-                            <span className="text-base font-black text-slate-900 dark:text-white">
-                              {detectionResult.perplexity}
-                            </span>
-                            <span className="text-[10px] text-slate-500">/ 100</span>
-                          </div>
-                          <p className="text-[10px] text-slate-500">
-                            {detectionResult.perplexity < 40 ? "Low (Formulaic LLM tokens)" : "High (Human nuance)"}
-                          </p>
-                        </div>
-
-                        <div className="p-3 rounded-xl bg-slate-100/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                            Burstiness Index
-                          </span>
-                          <div className="flex items-baseline gap-1.5">
-                            <span className="text-base font-black text-slate-900 dark:text-white">
-                              {detectionResult.burstiness}
-                            </span>
-                            <span className="text-[10px] text-slate-500">/ 100</span>
-                          </div>
-                          <p className="text-[10px] text-slate-500">
-                            {detectionResult.burstiness < 40 ? "Low (Uniform length)" : "High (Dynamic cadence)"}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Detected Marker Chips */}
-                      <div className="p-3 rounded-xl bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800/80 space-y-1.5">
-                        <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                          Flagged Phrasing & Transitions:
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {detectionResult.flaggedPhrases.map((phrase, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-[11px] font-semibold"
-                            >
-                              &ldquo;{phrase}&rdquo;
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        {detectionResult.summary}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="py-16 text-center text-slate-500 text-xs flex flex-col items-center justify-center space-y-2">
-                      <ShieldCheck className="w-8 h-8 text-slate-400" />
-                      <p className="max-w-xs text-slate-600 dark:text-slate-400">
-                        Click <strong className="text-elite-600 dark:text-elite-400">&ldquo;Detect AI 🔍&rdquo;</strong> on the left to scan your writing against Turnitin, GPTZero, and academic stylometric classifiers.
-                      </p>
-                    </div>
-                  )
-                ) : isProcessing ? (
-                  <div className="py-12 flex flex-col items-center justify-center space-y-3 text-center">
-                    <div className="w-8 h-8 rounded-full border-2 border-elite-600 border-t-transparent animate-spin" />
-                    <p className="text-xs font-bold text-slate-900 dark:text-slate-200 animate-pulse">
-                      {processStep || "Transforming syntax..."}
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Elevating perplexity and balancing academic burstiness
-                    </p>
-                  </div>
-                ) : outputText ? (
-                  <div className="space-y-4">
-                    <p className="text-sm leading-relaxed text-slate-900 dark:text-slate-200">
-                      {outputText}
-                    </p>
-
-                    {/* AI Score Comparison Banner */}
-                    <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 font-medium">Before:</span>
-                        <span className="text-rose-700 dark:text-rose-400 font-bold px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/60">
-                          {originalAiScore}% AI Detected
-                        </span>
-                      </div>
-                      <ArrowRight className="w-4 h-4 text-slate-400" />
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 font-medium">After:</span>
-                        <span className="text-emerald-700 dark:text-emerald-400 font-bold px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60">
-                          {100 - (humanizedAiScore || 4)}% Human
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="py-16 text-center text-slate-500 text-xs flex flex-col items-center justify-center space-y-2">
-                    <Sparkles className="w-6 h-6 text-slate-400" />
-                    <p className="max-w-xs">
-                      Click <strong className="text-slate-800 dark:text-slate-300">&ldquo;Humanize Text&rdquo;</strong> on the left to see instant academic transformation with zero AI flags.
-                    </p>
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 min-h-[22rem]" aria-live="polite">
+                {error && <div role="alert" className="rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-sm px-3.5 py-2.5 mb-3">{error}</div>}
+                {!rows && !error && (
+                  <div className="h-full min-h-[18rem] flex flex-col items-center justify-center text-center text-sm text-slate-600 dark:text-slate-400 gap-2">
+                    <ShieldCheck className="w-7 h-7 text-slate-400" />
+                    Your review appears here, sentence by sentence.
                   </div>
                 )}
+                {rows && (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div className="text-sm font-semibold">
+                        {issues} spelling or grammar point{issues === 1 ? "" : "s"} · {flagged} sentence{flagged === 1 ? "" : "s"} read as machine-like
+                      </div>
+                      <button onClick={suggest} disabled={busy !== null} className="flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50">
+                        <Wand2 className="w-3.5 h-3.5" /> {busy === "rewrite" ? "Working…" : "Suggest fixes"}
+                      </button>
+                    </div>
+                    <ul className="space-y-2.5 max-h-[26rem] overflow-y-auto pr-1">
+                      {rows.map((r, i) => {
+                        const pct = r.score === null ? null : Math.round(r.score * 100);
+                        return (
+                          <li key={i} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 text-sm space-y-2">
+                            <p className="font-serif leading-relaxed">{r.text}</p>
+                            <div className="flex flex-wrap gap-1.5 text-[11px] font-medium">
+                              {pct !== null && (
+                                <span className={`rounded-full px-2 py-0.5 ${pct >= 60 ? "bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300" : pct >= 30 ? "bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300" : "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300"}`}>
+                                  {pct}% machine-like
+                                </span>
+                              )}
+                              {r.spelling.map((s) => (
+                                <span key={s.from} className="rounded-full px-2 py-0.5 bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300">
+                                  {s.from} → {s.to}
+                                </span>
+                              ))}
+                              {r.grammar.map((g) => (
+                                <span key={g.id} className="rounded-full px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">{g.message}</span>
+                              ))}
+                            </div>
+                            {r.suggestion && (
+                              <div className="rounded-lg bg-elite-50/70 dark:bg-elite-950/30 border border-elite-100 dark:border-elite-900 p-2.5 space-y-1.5">
+                                <p className="font-serif leading-relaxed">{r.suggestion}</p>
+                                <button onClick={() => use(i)} className="text-xs font-semibold text-elite-700 dark:text-elite-300 hover:underline">Use this</button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {note && <p className="mt-3 text-xs text-amber-800 dark:text-amber-300">{note}</p>}
+                  </>
+                )}
               </div>
+            </div>
+          </div>
+        </section>
 
-              {/* Guest Upsell Banner */}
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-3 bg-elite-50/50 dark:bg-elite-950/20 p-3 rounded-2xl border border-elite-200/60 dark:border-elite-900/30">
-                <div className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-                  <Zap className="w-3.5 h-3.5 text-elite-600 dark:text-elite-400" />
-                  <span>
-                    Need <strong>.docx lossless upload</strong> & <strong>formula preservation</strong>?
-                  </span>
+        {/* Audiences */}
+        <section className="max-w-6xl mx-auto px-5 py-20">
+          <h2 className="font-serif text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">Built for people who write for a reader</h2>
+          <div className="mt-10 grid md:grid-cols-3 gap-5">
+            {AUDIENCES.map((a) => (
+              <div key={a.title} className="rounded-2xl border border-slate-200 dark:border-slate-800 p-6">
+                <a.icon className="w-6 h-6 text-elite-600 dark:text-elite-300" />
+                <h3 className="mt-4 font-semibold text-slate-900 dark:text-white">{a.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{a.text}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Honesty */}
+        <section className="border-y border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
+          <div className="max-w-4xl mx-auto px-5 py-16">
+            <h2 className="font-serif text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">What our scores mean, and what they do not</h2>
+            <ul className="mt-6 space-y-3 text-slate-600 dark:text-slate-300 leading-relaxed">
+              <li className="flex gap-3"><Check className="w-5 h-5 text-elite-600 shrink-0 mt-0.5" />A machine-likeness score estimates how closely a sentence resembles typical machine-written text. It is a reason to look again.</li>
+              <li className="flex gap-3"><Check className="w-5 h-5 text-elite-600 shrink-0 mt-0.5" />Detectors make mistakes, especially on formal, technical or non-native writing. A score is never proof of how something was written.</li>
+              <li className="flex gap-3"><Check className="w-5 h-5 text-elite-600 shrink-0 mt-0.5" />We never promise that any text will pass any detector. We help you write clearly, in your own voice.</li>
+            </ul>
+          </div>
+        </section>
+
+        {/* Plans */}
+        <section id="plans" className="max-w-6xl mx-auto px-5 py-20">
+          <h2 className="font-serif text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">Plans</h2>
+          <p className="mt-3 text-slate-600 dark:text-slate-300">Start free. Paid plans are not open for purchase yet, so nothing is charged today.</p>
+          <div className="mt-10 grid md:grid-cols-3 gap-5">
+            {[
+              { name: "Single paper", price: "$5", per: "one time", points: ["One document, edited for 30 days", "Clean and tracked Word export"] },
+              { name: "Individual", price: "$5", per: "per month", points: ["3 active papers", "30,000 words checked a day", "British or American English"], featured: true },
+              { name: "Edu Professional", price: "$15", per: "per month", points: ["40 active papers", "Client folders and a team board", "150,000 words checked a day"] },
+            ].map((p) => (
+              <div key={p.name} className={`rounded-2xl p-6 border ${p.featured ? "border-elite-500 bg-white dark:bg-slate-900 shadow-elite" : "border-slate-200 dark:border-slate-800"}`}>
+                <h3 className="font-semibold text-slate-900 dark:text-white">{p.name}</h3>
+                <div className="mt-3 flex items-baseline gap-1.5">
+                  <span className="font-serif text-4xl font-semibold">{p.price}</span>
+                  <span className="text-sm text-slate-600 dark:text-slate-400">{p.per}</span>
                 </div>
-                <button
-                  onClick={() => setIsAuthModalOpen(true)}
-                  className="text-xs font-bold text-elite-600 dark:text-elite-400 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Sign In Free</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                <ul className="mt-5 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                  {p.points.map((pt) => (
+                    <li key={pt} className="flex gap-2"><Check className="w-4 h-4 text-elite-600 shrink-0 mt-0.5" />{pt}</li>
+                  ))}
+                </ul>
               </div>
-            </div>
+            ))}
           </div>
-        </div>
-      </section>
-
-      {/* ---------------- 4. FEATURE PILLARS ---------------- */}
-      <section className="py-16 px-6 sm:px-10 max-w-7xl mx-auto w-full border-t border-slate-200 dark:border-slate-800/80">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 space-y-3 shadow-xs">
-            <div className="w-10 h-10 rounded-2xl bg-elite-50 dark:bg-elite-600/10 text-elite-600 dark:text-elite-400 flex items-center justify-center font-bold">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Lossless .docx Formatting</h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Never reformat your paper again. eduX patches only flagged sentences while leaving OMML formulas, headers, footers, tables, and references byte-identical.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 space-y-3 shadow-xs">
-            <div className="w-10 h-10 rounded-2xl bg-teal-50 dark:bg-teal-600/10 text-teal-600 dark:text-teal-400 flex items-center justify-center font-bold">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Turnitin & GPTZero Immunity</h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Calculates local and cross-paragraph burstiness and perplexity to transform formulaic stock transitions into peer-reviewed scholarly cadence.
-            </p>
-          </div>
-
-          <div className="p-6 rounded-3xl bg-white dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 space-y-3 shadow-xs">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
-              <FileText className="w-5 h-5" />
-            </div>
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Dedicated Word Editor</h3>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Work directly inside our multi-page A4 canvas wrapper with live formatting, undo/redo, font selection, equation embedding, and instant export.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ---------------- 5. FOOTER ---------------- */}
-      <footer className="mt-auto border-t border-slate-200 dark:border-slate-800/80 py-8 px-6 sm:px-10 text-center text-xs text-slate-500 bg-white dark:bg-[#07090e]">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-800 dark:text-white">eduX</span>
-            <span>— Academic Integrity & Lossless Humanizer Suite</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <Link href="/plans" className="hover:text-slate-800 dark:hover:text-slate-300 transition-colors">
-              Plans & Pricing
-            </Link>
-            <button
-              onClick={() => setIsAuthModalOpen(true)}
-              className="hover:text-slate-800 dark:hover:text-slate-300 transition-colors cursor-pointer"
-            >
-              Researcher Sign In
+          <div className="mt-8">
+            <button onClick={() => (user ? router.push("/documents") : openAuth("register"))} className="inline-flex items-center gap-2 rounded-xl bg-elite-600 hover:bg-elite-700 text-white font-semibold px-6 py-3.5">
+              {user ? "Open your documents" : "Create a free account"} <ArrowRight className="w-4 h-4" />
             </button>
           </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-slate-200 dark:border-slate-800">
+        <div className="max-w-6xl mx-auto px-5 py-8 flex flex-wrap items-center justify-between gap-4 text-sm text-slate-600 dark:text-slate-400">
+          <Logo size="sm" />
+          <nav aria-label="Footer" className="flex items-center gap-5">
+            <Link href="/help" className="hover:text-slate-900 dark:hover:text-white">Help</Link>
+            <button onClick={() => openAuth("login")} className="hover:text-slate-900 dark:hover:text-white">Sign in</button>
+          </nav>
         </div>
       </footer>
 
-      {/* Global Auth Modal */}
       <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        isOpen={authOpen}
+        initialMode={authMode}
+        onClose={() => setAuthOpen(false)}
         onAuthSuccess={(u) => {
-          setCurrentUser(u);
-          router.push("/dashboard");
+          setUser(u);
+          setAuthOpen(false);
+          router.push("/documents");
         }}
-      />
-
-      {/* Global Upload Modal */}
-      <UploadDocxModal
-        isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
-        onDocumentLoaded={() => router.push("/edit")}
       />
     </div>
   );
