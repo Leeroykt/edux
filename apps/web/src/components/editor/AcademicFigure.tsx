@@ -223,11 +223,15 @@ export const AcademicFigure: React.FC<AcademicFigureProps> = ({
 
         {/* Image Container with Border & Handles */}
         <div className="relative rounded border border-slate-200 dark:border-slate-700/80 p-1 bg-white dark:bg-slate-900 group-hover:border-elite-400 group-hover:shadow-md transition-all">
-          <img
-            src={url}
-            alt={captionText || "Figure"}
-            className="w-full h-auto object-contain rounded-xs max-h-[380px] mx-auto"
-          />
+          {url ? (
+            <img
+              src={url}
+              alt={captionText || "Figure"}
+              className="w-full h-auto object-contain rounded-xs max-h-[380px] mx-auto"
+            />
+          ) : (
+            <div className="py-10 text-center text-xs text-slate-500">This image is not stored on this device. Replace it to show it here.</div>
+          )}
         </div>
 
         {/* Caption */}

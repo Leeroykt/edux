@@ -23,6 +23,16 @@ export interface User {
 export type DocumentStatus = 'uploading' | 'scanning' | 'ready' | 'processing' | 'error';
 export type DocumentStage = 'uploaded' | 'in_review' | 'returned' | 'closed';
 
+/** The English a document is written in. */
+export type DocumentDialect = 'en-GB' | 'en-US';
+/** What kind of writing a document is. */
+export type WritingMode = 'academic' | 'scientific' | 'executive';
+/** How sources are cited and listed. */
+export type CitationStyle = 'APA 7' | 'Harvard' | 'MLA 9' | 'Chicago' | 'IEEE' | 'Vancouver' | 'None';
+
+export const WRITING_MODES: WritingMode[] = ['academic', 'scientific', 'executive'];
+export const CITATION_STYLES: CitationStyle[] = ['APA 7', 'Harvard', 'MLA 9', 'Chicago', 'IEEE', 'Vancouver', 'None'];
+
 export interface DocumentMeta {
   id: string;
   ownerId: string;
@@ -37,6 +47,10 @@ export interface DocumentMeta {
   dueDate?: string;
   overallAiScore?: number;
   similarityScore?: number;
+  /** Chosen per document. A document without them follows the writer's defaults. */
+  dialect?: DocumentDialect;
+  writingMode?: WritingMode;
+  citationStyle?: CitationStyle;
   createdAt: string;
   updatedAt: string;
 }

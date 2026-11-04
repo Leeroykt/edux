@@ -10,6 +10,7 @@ const STEPS = ["Welcome", "Your writing", "Get started"] as const;
 
 const MODES: { id: WritingMode; title: string; text: string }[] = [
   { id: "academic", title: "Academic", text: "Essays, theses, dissertations and journal papers, with citations." },
+  { id: "scientific", title: "Scientific", text: "Lab reports, papers and methods sections with precise, checkable claims." },
   { id: "executive", title: "Executive and business", text: "Reports, briefs and proposals that need to be clear and concise." },
 ];
 

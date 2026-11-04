@@ -28,7 +28,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
           <span className="text-xs font-mono font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
             Plans
           </span>
-          <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white">
             Pick the plan that fits your writing
           </h2>
           <p className="text-sm text-slate-500 max-w-xl mx-auto">
@@ -69,7 +69,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
         )}
 
         {/* 3 Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-5 items-stretch">
           {/* Card 1: Pay Per Paper */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-6">
             <div className="space-y-4">
@@ -110,15 +110,15 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
           {/* Card 2: Individual ($5 / mo) */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border-2 border-indigo-600 shadow-lg shadow-indigo-600/10 flex flex-col justify-between space-y-6 relative">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-indigo-600 text-white font-bold text-[10px] uppercase tracking-wider shadow-sm">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-0.5 rounded-full bg-indigo-600 text-white font-bold text-[10px] uppercase tracking-wider shadow-sm">
               Most Popular for Students
             </div>
 
             <div className="space-y-4">
-              <div className="font-bold text-sm text-indigo-600 dark:text-indigo-400 flex items-center justify-between">
+              <div className="font-bold text-sm text-indigo-600 dark:text-indigo-400 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
                 <span>Individual Plan</span>
                 {currentPlan === "individual" && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 border border-indigo-200">
+                  <span className="whitespace-nowrap text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 border border-indigo-200">
                     Current Plan
                   </span>
                 )}

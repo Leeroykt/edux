@@ -125,7 +125,7 @@ export default function DocumentsPage() {
 
   if (!ready || loading) {
     return (
-      <div className="max-w-5xl mx-auto p-6 sm:p-10 space-y-6" aria-busy="true" aria-label="Loading documents">
+      <div className="max-w-7xl mx-auto p-6 sm:p-10 space-y-6" aria-busy="true" aria-label="Loading documents">
         <div className="ai-pending h-9 w-72" />
         <div className="ai-pending h-28 w-full rounded-2xl" />
         <div className="ai-pending h-64 w-full rounded-2xl" />
@@ -134,7 +134,7 @@ export default function DocumentsPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-4 sm:p-8 lg:p-10 space-y-8">
+    <div className="max-w-7xl mx-auto p-4 sm:p-8 lg:p-10 space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="font-serif text-3xl sm:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white">
@@ -144,7 +144,7 @@ export default function DocumentsPage() {
           <p className="mt-1.5 text-sm text-slate-500">
             {docs.length === 0
               ? "Start with one document. It takes about a minute to see what needs attention."
-              : `${docs.length} document${docs.length === 1 ? "" : "s"} in your library. Writing in ${prefs.dialect === "en-GB" ? "British" : "American"} English.`}
+              : `${docs.length} document${docs.length === 1 ? "" : "s"} in your library.`}
           </p>
         </div>
         <button

@@ -9,7 +9,10 @@ import {
   ScoreEngine,
   SourcePool,
   UsageSummary,
-  VoiceProfile
+  VoiceProfile,
+  DocumentDialect,
+  WritingMode,
+  CitationStyle
 } from "@edux/schema";
 
 export interface DbUser {
@@ -53,6 +56,9 @@ export interface DbDocument {
   sourceObjectKey?: string;
   scanDone?: number;
   scanTotal?: number;
+  dialect?: DocumentDialect;
+  writingMode?: WritingMode;
+  citationStyle?: CitationStyle;
   createdAt: string;
   updatedAt: string;
 }

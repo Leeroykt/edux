@@ -26,6 +26,7 @@ import { useScan } from "../../../hooks/useScan";
 import { useSession } from "../../../hooks/useSession";
 import { useConfirm, useToast } from "../../../components/ui/feedback";
 import { sanitizeHtml } from "../../../lib/formatting";
+import type { DocumentDialect, WritingMode, CitationStyle } from "@edux/schema";
 import { convertSpelling, findSpellingIssues, dialectLabel, detectDialect } from "../../../lib/dialect";
 import { EquationMap, keepsEquations } from "../../../lib/equations";
 import { hasFormatting, reconcile } from "../../../lib/editing";
@@ -115,6 +116,15 @@ export default function WordEditorPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { prefs, setPrefs, completeStep, refreshUsage, openUpload } = useSession();
+
+  // Language, writing type and referencing belong to the document. A document without them follows the writer's defaults.
+  const docDialect = documentMeta?.dialect ?? prefs.dialect;
+  const docMode = documentMeta?.writingMode ?? prefs.writingMode;
+  const docCitation = documentMeta?.citationStyle ?? prefs.citationStyle;
+  const changeSettings = (patch: { dialect?: DocumentDialect; writingMode?: WritingMode; citationStyle?: CitationStyle }) => {
+    setDocumentMeta((m) => (m ? { ...m, ...patch } : m));
+    if (documentMeta) void apiClient.updateDocumentSettings(documentMeta.id, patch);
+  };
   const [focusMode, setFocusMode] = useState(false);
   const [paperTheme, setPaperTheme] = useState<"white" | "dark">("white");
   const [fontFamily, setFontFamily] = useState<string>(prefs.fontFamily);
@@ -424,7 +434,7 @@ export default function WordEditorPage() {
     setSuggestionsError(null);
     setSuggestions([]);
     try {
-      const candidates = await apiClient.getSentenceSuggestions(sentence.id, { tone, dialect: prefs.dialect }, controller.signal);
+      const candidates = await apiClient.getSentenceSuggestions(sentence.id, { tone, dialect: docDialect }, controller.signal);
       if (controller.signal.aborted) return;
       setSuggestions(candidates);
       setSuggestionsMap((prev) => ({ ...prev, [sentence.id]: candidates }));
@@ -471,7 +481,7 @@ export default function WordEditorPage() {
       while (next < todo.length) {
         const s = todo[next++];
         try {
-          const candidates = await apiClient.getSentenceSuggestions(s.id, { tone, dialect: prefs.dialect });
+          const candidates = await apiClient.getSentenceSuggestions(s.id, { tone, dialect: docDialect });
           setSuggestionsMap((prev) => ({ ...prev, [s.id]: candidates }));
         } catch {
           // one failure should not stop the rest
@@ -854,7 +864,17 @@ export default function WordEditorPage() {
   ) => {
     suggestAbort.current?.abort();
     setEquations(foundEquations);
-    setDocumentMeta(doc);
+    // A new document starts from the writer's defaults, with its English read from what it actually says.
+    const reading = detectDialect(
+      parsedParagraphs.flatMap((p) => [...p.sentences.map((s) => s.text), ...(p.tableData?.flat() ?? [])]).join(" ")
+    );
+    const settings = {
+      dialect: reading.dialect ?? prefsRef.current.dialect,
+      writingMode: prefsRef.current.writingMode,
+      citationStyle: prefsRef.current.citationStyle,
+    };
+    setDocumentMeta({ ...doc, ...settings });
+    void apiClient.updateDocumentSettings(doc.id, settings);
     setParagraphs(parsedParagraphs);
     setSelectedSentence(null);
     setSuggestions([]);
@@ -865,14 +885,9 @@ export default function WordEditorPage() {
     setScanDocId(doc.id);
     setScanRunKey((k) => k + 1);
 
-    // Follow the document's own English rather than the browser's guess, and say so.
-    const reading = detectDialect(
-      parsedParagraphs.flatMap((p) => [...p.sentences.map((s) => s.text), ...(p.tableData?.flat() ?? [])]).join(" ")
-    );
     if (reading.dialect && reading.dialect !== prefsRef.current.dialect) {
-      setPrefs({ dialect: reading.dialect });
       toast.show(
-        `This reads as ${dialectLabel(reading.dialect)} (${reading.dialect === "en-GB" ? reading.gb : reading.us} spellings against ${reading.dialect === "en-GB" ? reading.us : reading.gb}), so I switched to it.`,
+        `This reads as ${dialectLabel(reading.dialect)} (${reading.dialect === "en-GB" ? reading.gb : reading.us} spellings against ${reading.dialect === "en-GB" ? reading.us : reading.gb}), so this document is set to it.`,
         { kind: "info", ms: 7000 }
       );
     }
@@ -1094,12 +1109,12 @@ export default function WordEditorPage() {
       if (p.type === "blockquote" || p.type === "image") continue;
       for (const sent of p.sentences) {
         if (sent.locked) continue;
-        const { text, changes } = convertSpelling(sent.text, prefs.dialect);
+        const { text, changes } = convertSpelling(sent.text, docDialect);
         if (changes.length) out.push({ sentence: sent, text, count: changes.length });
       }
     }
     return out;
-  }, [paragraphs, prefs.dialect]);
+  }, [paragraphs, docDialect]);
   const spellingIssues = spellingTargets.reduce((n, t) => n + t.count, 0);
 
   /** Writes corrected text into a sentence without touching its score. Returns what was there before. */
@@ -1130,12 +1145,12 @@ export default function WordEditorPage() {
   const handleConvertSpelling = async () => {
     if (spellingTargets.length === 0) return;
     const ok = await confirm({
-      title: `Convert to ${dialectLabel(prefs.dialect)}?`,
+      title: `Convert to ${dialectLabel(docDialect)}?`,
       message: (
         <>
           {spellingIssues} word{spellingIssues === 1 ? "" : "s"} in {spellingTargets.length} sentence{spellingTargets.length === 1 ? "" : "s"} will change, for
-          example &ldquo;{findSpellingIssues(spellingTargets[0].sentence.text, prefs.dialect)[0].from}&rdquo; to &ldquo;
-          {findSpellingIssues(spellingTargets[0].sentence.text, prefs.dialect)[0].to}&rdquo;. Quotations and locked sentences are left alone, and you can undo this.
+          example &ldquo;{findSpellingIssues(spellingTargets[0].sentence.text, docDialect)[0].from}&rdquo; to &ldquo;
+          {findSpellingIssues(spellingTargets[0].sentence.text, docDialect)[0].to}&rdquo;. Quotations and locked sentences are left alone, and you can undo this.
         </>
       ),
       confirmLabel: "Convert",
@@ -1146,7 +1161,7 @@ export default function WordEditorPage() {
     changed.forEach((c) => applyTextFix(c.id, c.to));
     setUndoStack((prev) => [...changed.map((c) => ({ sentenceId: c.id, text: c.from, score: c.score })), ...prev]);
     setRedoStack([]);
-    toast.show(`Converted ${spellingIssues} word${spellingIssues === 1 ? "" : "s"} to ${dialectLabel(prefs.dialect)}.`, {
+    toast.show(`Converted ${spellingIssues} word${spellingIssues === 1 ? "" : "s"} to ${dialectLabel(docDialect)}.`, {
       kind: "success",
       ms: 9000,
       action: {
@@ -1200,12 +1215,16 @@ export default function WordEditorPage() {
         onFontSize={setFontSize}
         paperTheme={paperTheme}
         onPaperTheme={() => setPaperTheme(paperTheme === "white" ? "dark" : "white")}
-        dialect={prefs.dialect}
+        dialect={docDialect}
         onDialect={(d) => {
-          setPrefs({ dialect: d });
+          changeSettings({ dialect: d });
           setSuggestionsMap({});
-          toast.show(`Writing in ${dialectLabel(d)}.`, { kind: "success", ms: 2500 });
+          toast.show(`This document is now in ${dialectLabel(d)}.`, { kind: "success", ms: 2500 });
         }}
+        writingMode={docMode}
+        onWritingMode={(m) => changeSettings({ writingMode: m })}
+        citationStyle={docCitation}
+        onCitationStyle={(c) => changeSettings({ citationStyle: c })}
         spellingIssues={spellingIssues}
         onConvertSpelling={handleConvertSpelling}
         onRescan={handleTriggerHumanise}
@@ -1229,10 +1248,10 @@ export default function WordEditorPage() {
       {!focusMode && spellingIssues > 0 && (
         <div className="shrink-0 px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 bg-amber-50 dark:bg-amber-950/25 border-b border-amber-200/70 dark:border-amber-900/50 text-xs text-amber-900 dark:text-amber-200">
           <span>
-            {spellingIssues} word{spellingIssues === 1 ? " uses" : "s use"} {prefs.dialect === "en-GB" ? "American" : "British"} spelling.
+            {spellingIssues} word{spellingIssues === 1 ? " uses" : "s use"} {docDialect === "en-GB" ? "American" : "British"} spelling.
           </span>
           <button onClick={handleConvertSpelling} className="font-semibold underline underline-offset-2 hover:no-underline">
-            Convert to {dialectLabel(prefs.dialect)}
+            Convert to {dialectLabel(docDialect)}
           </button>
         </div>
       )}
@@ -1288,7 +1307,7 @@ export default function WordEditorPage() {
           onSplitParagraph={splitParagraph}
           onMergeParagraph={mergeParagraph}
           editRequest={editRequest}
-          lang={prefs.dialect}
+          lang={docDialect}
           onUnsupportedEdit={(what) => toast.show(`${what} is not available while typing yet. Alignment and rewrites work as usual.`)}
           rescoring={rescoring}
           hideStatusHeader
@@ -1313,7 +1332,7 @@ export default function WordEditorPage() {
             report={similarityReport}
             isOpen={isInspectorOpen}
             onCloseMobile={() => setIsInspectorOpen(false)}
-            dialect={prefs.dialect}
+            dialect={docDialect}
             grammarChecks={prefs.grammarChecks}
             onFixSentence={handleFixSentence}
           />

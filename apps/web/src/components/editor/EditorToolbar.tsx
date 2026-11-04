@@ -27,10 +27,18 @@ import {
   AlignJustify,
 } from "lucide-react";
 import { DIALECTS, Dialect, dialectLabel } from "../../lib/dialect";
+import { CITATION_STYLES, CitationStyle, WRITING_MODES, WritingMode } from "@edux/schema";
 
 export type Align = "left" | "center" | "right" | "justify";
 
 export type ViewMode = "original_flags" | "humanised_preview" | "split" | "clean";
+
+const MODE_LABEL: Record<WritingMode, string> = { academic: "Academic", scientific: "Scientific", executive: "Executive" };
+const MODE_HINT: Record<WritingMode, string> = {
+  academic: "Essays, theses and coursework",
+  scientific: "Lab reports, papers and methods",
+  executive: "Reports, briefings and proposals",
+};
 
 const Menu: React.FC<{
   label: React.ReactNode;
@@ -136,6 +144,10 @@ interface Props {
   onPaperTheme: () => void;
   dialect: Dialect;
   onDialect: (d: Dialect) => void;
+  writingMode: WritingMode;
+  onWritingMode: (m: WritingMode) => void;
+  citationStyle: CitationStyle;
+  onCitationStyle: (c: CitationStyle) => void;
   spellingIssues: number;
   onConvertSpelling: () => void;
   onRescan: () => void;
@@ -291,26 +303,36 @@ export const EditorToolbar: React.FC<Props> = (p) => {
             </Menu>
 
             <Menu
-              title="English variant"
+              title="Language and referencing for this document"
               active={p.spellingIssues > 0}
-              label={<><Globe2 className="w-3.5 h-3.5" /> {p.dialect === "en-GB" ? "British" : "American"}{p.spellingIssues > 0 && <span className="ml-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold px-1.5">{p.spellingIssues}</span>}</>}
+              label={<><Globe2 className="w-3.5 h-3.5" /> {p.dialect === "en-GB" ? "British" : "American"} <span className="hidden xl:inline text-slate-400">· {MODE_LABEL[p.writingMode]} · {p.citationStyle}</span>{p.spellingIssues > 0 && <span className="ml-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold px-1.5">{p.spellingIssues}</span>}</>}
             >
               {(close) => (
-                <>
+                <div className="w-64">
+                  <div className="px-3.5 pt-2 pb-1 text-[11px] text-slate-500">These apply to this document only.</div>
+                  <div className="px-3.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">English</div>
                   {DIALECTS.map((d) => (
-                    <Item key={d.id} label={d.label} hint={d.example} checked={p.dialect === d.id} onClick={() => { p.onDialect(d.id); close(); }} />
+                    <Item key={d.id} label={d.label} hint={d.example} checked={p.dialect === d.id} onClick={() => { p.onDialect(d.id); }} />
                   ))}
                   {p.spellingIssues > 0 && (
-                    <div className="mt-1 pt-1 border-t border-slate-100 dark:border-slate-800">
-                      <Item
-                        icon={Wand2}
-                        label={`Convert ${p.spellingIssues} word${p.spellingIssues === 1 ? "" : "s"} to ${dialectLabel(p.dialect)}`}
-                        hint="You will be asked to confirm"
-                        onClick={() => { close(); p.onConvertSpelling(); }}
-                      />
-                    </div>
+                    <Item
+                      icon={Wand2}
+                      label={`Convert ${p.spellingIssues} word${p.spellingIssues === 1 ? "" : "s"} to ${dialectLabel(p.dialect)}`}
+                      hint="You will be asked to confirm"
+                      onClick={() => { close(); p.onConvertSpelling(); }}
+                    />
                   )}
-                </>
+                  <div className="mt-1 pt-1.5 border-t border-slate-100 dark:border-slate-800 px-3.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Writing type</div>
+                  {WRITING_MODES.map((m) => (
+                    <Item key={m} label={MODE_LABEL[m]} hint={MODE_HINT[m]} checked={p.writingMode === m} onClick={() => p.onWritingMode(m)} />
+                  ))}
+                  <div className="mt-1 pt-1.5 border-t border-slate-100 dark:border-slate-800 px-3.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Referencing</div>
+                  <div className="grid grid-cols-2">
+                    {CITATION_STYLES.map((c) => (
+                      <Item key={c} label={c} checked={p.citationStyle === c} onClick={() => p.onCitationStyle(c)} />
+                    ))}
+                  </div>
+                </div>
               )}
             </Menu>
           </div>

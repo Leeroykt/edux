@@ -7,7 +7,10 @@ import {
   SuggestionCandidate,
   DocumentStage,
   SentenceScore,
-  User
+  User,
+  DocumentDialect,
+  WritingMode,
+  CitationStyle
 } from "@edux/schema";
 import {
   MOCK_DOCUMENT,
@@ -427,6 +430,18 @@ export class EduxApiClient {
       });
     } catch (err) {
       console.warn("Failed to update document stage:", err);
+    }
+  }
+
+  /** Saves a document's language, writing type or referencing style. A document that exists only on this device is skipped quietly. */
+  async updateDocumentSettings(
+    docId: string,
+    patch: { dialect?: DocumentDialect; writingMode?: WritingMode; citationStyle?: CitationStyle }
+  ): Promise<void> {
+    try {
+      await this.fetchWithAuth(`/documents/${docId}`, { method: "PATCH", body: JSON.stringify(patch) });
+    } catch (err) {
+      console.warn("Failed to save document settings:", err);
     }
   }
 

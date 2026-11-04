@@ -18,7 +18,7 @@ const TABS = [
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
-const CITATIONS: CitationStyle[] = ["APA 7", "Harvard", "MLA 9", "Chicago", "IEEE", "None"];
+const CITATIONS: CitationStyle[] = ["APA 7", "Harvard", "MLA 9", "Chicago", "IEEE", "Vancouver", "None"];
 const FONTS = ["Newsreader", "Times New Roman", "Georgia", "Arial", "Calibri"];
 const SAMPLE = "We analyse how colour and behaviour shape the centre of the programme, and organise the findings.";
 
@@ -121,7 +121,7 @@ function SettingsInner() {
   const initials = (user?.name || "?").split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
 
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-8 lg:p-10">
+    <div className="max-w-6xl mx-auto p-4 sm:p-8 lg:p-10">
       <h2 className="font-serif text-3xl font-semibold tracking-tight text-slate-900 dark:text-white mb-1">Settings</h2>
       <p className="text-sm text-slate-500 mb-6">Your account, how you write, and your plan. Changes save as you make them unless a button says otherwise.</p>
 
@@ -178,7 +178,7 @@ function SettingsInner() {
 
           {tab === "writing" && (
             <>
-              <Section title="English" description="Spelling checks and rewrites follow the variant you choose.">
+              <Section title="Default English" description="New documents start in this variant. Each document keeps its own, which you can change from the language menu in the editor.">
                 <div role="radiogroup" aria-label="English variant" className="grid sm:grid-cols-2 gap-3">
                   {DIALECTS.map((d) => (
                     <label
@@ -192,7 +192,7 @@ function SettingsInner() {
                         name="dialect"
                         className="sr-only"
                         checked={prefs.dialect === d.id}
-                        onChange={() => savedPref("dialect", d.id as Dialect, `Writing in ${d.label}.`)}
+                        onChange={() => savedPref("dialect", d.id as Dialect, `New documents will start in ${d.label}.`)}
                       />
                       <div className="flex items-center gap-2 text-sm font-semibold">
                         <Globe2 className="w-4 h-4 text-elite-600" />
@@ -207,15 +207,16 @@ function SettingsInner() {
                 </div>
               </Section>
 
-              <Section title="Your writing" description="Used to tune checks and suggestions.">
+              <Section title="Defaults for new documents" description="Each document keeps its own writing type and referencing style, and you can change them in the editor.">
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Field id="w-mode" label="Main kind of writing">
+                  <Field id="w-mode" label="Kind of writing">
                     <select id="w-mode" className={inputClass} value={prefs.writingMode} onChange={(e) => savedPref("writingMode", e.target.value as WritingMode, "Saved.")}>
                       <option value="academic">Academic</option>
+                      <option value="scientific">Scientific</option>
                       <option value="executive">Executive and business</option>
                     </select>
                   </Field>
-                  <Field id="w-cite" label="Citation style">
+                  <Field id="w-cite" label="Referencing style">
                     <select id="w-cite" className={inputClass} value={prefs.citationStyle} onChange={(e) => savedPref("citationStyle", e.target.value as CitationStyle, "Saved.")}>
                       {CITATIONS.map((c) => (
                         <option key={c}>{c}</option>
@@ -287,7 +288,8 @@ function SettingsInner() {
                         <div key={m.label}>
                           <div className="text-xs text-slate-500">{m.label}</div>
                           <div className="font-semibold">
-                            {m.used.toLocaleString()} <span className="text-slate-400 font-normal">/ {m.cap.toLocaleString()}</span>
+                            {Math.min(m.used, m.cap).toLocaleString()} <span className="text-slate-400 font-normal">/ {m.cap.toLocaleString()}</span>
+                            {m.used >= m.cap && <span className="ml-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">limit reached</span>}
                           </div>
                         </div>
                       ))}

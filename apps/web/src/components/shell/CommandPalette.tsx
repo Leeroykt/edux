@@ -74,13 +74,13 @@ export const CommandPalette: React.FC<{ open: boolean; onClose: () => void }> = 
       {
         id: "do-dialect",
         group: "Settings",
-        label: `Switch to ${dialectLabel(prefs.dialect === "en-GB" ? "en-US" : "en-GB")}`,
-        hint: `Currently ${dialectLabel(prefs.dialect)}`,
+        label: `Default English: switch to ${dialectLabel(prefs.dialect === "en-GB" ? "en-US" : "en-GB")}`,
+        hint: `New documents use ${dialectLabel(prefs.dialect)}. Change one document from the editor.`,
         icon: Globe2,
         run: () => {
           const next = prefs.dialect === "en-GB" ? "en-US" : "en-GB";
           setPrefs({ dialect: next });
-          toast.show(`Writing in ${dialectLabel(next)}.`, { kind: "success" });
+          toast.show(`New documents will start in ${dialectLabel(next)}.`, { kind: "success" });
         },
         keywords: "english spelling british american uk us language",
       },

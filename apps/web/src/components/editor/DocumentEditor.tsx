@@ -126,6 +126,16 @@ const ACADEMIC_SYNONYMS: Record<string, string[]> = {
   "in conclusion": ["ultimately", "in summary", "overall"],
 };
 
+/**
+ * A sentence drawn from saved HTML. React rewrites innerHTML on every render when it is given a fresh object,
+ * which wipes the writer's text selection, so it only redraws when the HTML itself changes.
+ */
+const HtmlBody = React.memo(
+  ({ id, html }: { id: string; html: string }) => <span data-body={id} dangerouslySetInnerHTML={{ __html: html }} />,
+  (a, b) => a.id === b.id && a.html === b.html
+);
+HtmlBody.displayName = "HtmlBody";
+
 export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   paragraphs,
   selectedSentenceId,
@@ -366,10 +376,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const renderBody = (s: DocumentSentence): React.ReactNode => {
     if (hasEquation(s.text)) {
       const html = (s.formattedHtml ?? escapeHtml(s.text)).replace(TOKEN_REGEX(), (_m, id: string) => equationHtml(id));
-      return <span key={`${s.id}-e-${s.formattedHtml ? 1 : 0}`} data-body={s.id} dangerouslySetInnerHTML={{ __html: html }} />;
+      return <HtmlBody key={`${s.id}-e-${s.formattedHtml ? 1 : 0}`} id={s.id} html={html} />;
     }
     return s.formattedHtml ? (
-      <span key={`${s.id}-f`} data-body={s.id} dangerouslySetInnerHTML={{ __html: s.formattedHtml }} />
+      <HtmlBody key={`${s.id}-f`} id={s.id} html={s.formattedHtml} />
     ) : (
       <span key={`${s.id}-p`} data-body={s.id}>
         {s.text}

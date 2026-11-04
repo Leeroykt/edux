@@ -5,8 +5,8 @@ import { UsageSummary, User } from "@edux/schema";
 import { apiClient } from "../services/api/apiClient";
 import { Dialect, guessDialect } from "../lib/dialect";
 
-export type WritingMode = "academic" | "executive";
-export type CitationStyle = "APA 7" | "Harvard" | "MLA 9" | "Chicago" | "IEEE" | "None";
+import type { WritingMode, CitationStyle } from "@edux/schema";
+export type { WritingMode, CitationStyle };
 
 export interface Preferences {
   dialect: Dialect;
