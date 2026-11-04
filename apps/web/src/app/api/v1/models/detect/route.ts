@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({
-      model: process.env.MODEL_SERVICE_URL ? "external-ml-service" : "stylometric-ensemble-v1.2",
+      engines: Array.from(new Set(results.map((r) => r.engine))),
       count: results.length,
       scores: results,
     });

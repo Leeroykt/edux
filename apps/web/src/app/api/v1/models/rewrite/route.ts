@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { sentenceId = "s_demo", text, contextParagraph, tone, strength } = body;
+    const dialect = body.dialect === "en-US" ? "en-US" : body.dialect === "en-GB" ? "en-GB" : undefined;
 
     if (!text || typeof text !== "string") {
       return NextResponse.json(
@@ -23,10 +24,11 @@ export async function POST(req: NextRequest) {
       contextParagraph,
       tone,
       strength,
+      dialect,
     });
 
     return NextResponse.json({
-      model: process.env.MODEL_SERVICE_URL ? "external-ml-service" : "academic-lora-qwen-v2",
+      engines: Array.from(new Set(suggestions.map((r) => r.engine))),
       sentenceId,
       suggestions,
     });

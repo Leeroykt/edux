@@ -229,3 +229,27 @@ Then in `.env.local`:
 MODEL_SERVICE_URL=http://localhost:8000
 ```
 And eduX will automatically connect.
+
+---
+
+## 7. Connector behaviour (current)
+
+Environment variables read by the web backend:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MODEL_SERVICE_URL` | unset | Base URL of your service. Unset means the built-in reference heuristic is used. |
+| `MODEL_SERVICE_TOKEN` | unset | Sent as `Authorization: Bearer <token>`. Set it when the service is reachable from the internet (for example through a tunnel). |
+| `MODEL_TIMEOUT_MS` | `30000` | Per-request timeout. |
+| `MODEL_DETECT_BATCH` | `24` | Sentences per `/v1/detect` request. |
+| `MODEL_DETECT_CONCURRENCY` | `2` | Detect batches in flight at once. |
+| `MODEL_VERSION` | `model-service` | Stored next to every score and suggestion. |
+
+Rules the backend applies, so the service does not have to:
+
+- Sentences under 8 words, headings, quotations, locked and ignored sentences are never sent for scoring.
+- `band` is recomputed from `score` (`< 0.30` human, `< 0.60` uncertain, otherwise machine). Unknown `reasons` and `strategy` values are dropped or replaced.
+- If a batch fails or a sentence is missing from the reply, the reference heuristic fills in and the score is tagged `engine: "reference"`. The editor shows a notice for those. Scores from your service are tagged `engine: "model"`.
+- `GET {MODEL_SERVICE_URL}/v1/health` should return 200. `GET /api/v1/models/status` reports whether it is reachable.
+- A rewrite with `meaningScore` of 0 is shown as "Unchecked" and is never applied by "Apply all". Return a real meaning score (0-100) so your candidates can be applied in bulk (the cut-off is 90).
+- Free tunnels such as ngrok add an interstitial page. The connector sends `ngrok-skip-browser-warning: 1`.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/server/auth/authMiddleware";
 import { db } from "@/server/db/store";
+import { ownDocument } from "@/server/auth/access";
 
 export async function PATCH(
   req: NextRequest,
@@ -19,6 +20,9 @@ export async function PATCH(
       return NextResponse.json({ error: { code: "BAD_REQUEST", message: "Stage is required." } }, { status: 400 });
     }
 
+    if (!(await ownDocument(auth.user, id))) {
+      return NextResponse.json({ error: { code: "NOT_FOUND", message: "Document not found." } }, { status: 404 });
+    }
     const updated = await db.updateDocument(id, { stage });
     if (!updated) {
       return NextResponse.json({ error: { code: "NOT_FOUND", message: "Document not found." } }, { status: 404 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/server/auth/authMiddleware";
 import { db } from "@/server/db/store";
+import { ownDocument } from "@/server/auth/access";
 
 export async function GET(
   req: NextRequest,
@@ -12,7 +13,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  const doc = await db.findDocumentById(id);
+  const doc = await ownDocument(auth.user, id);
   if (!doc) {
     return NextResponse.json({ error: { code: "NOT_FOUND", message: "Document not found." } }, { status: 404 });
   }

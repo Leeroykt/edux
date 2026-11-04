@@ -144,7 +144,8 @@ class DatabaseStore {
     };
 
     return {
-      users: [defaultUser],
+      // The demo account exists for local development only.
+      users: process.env.NODE_ENV === "production" ? [] : [defaultUser],
       sessions: [],
       documents: initialDocs,
       versions: [
@@ -201,12 +202,27 @@ class DatabaseStore {
     this.isLoaded = true;
   }
 
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private persisting: Promise<void> = Promise.resolve();
+
+  /**
+   * Schedules a write of the whole state. Writes are debounced and run off the
+   * request path so a burst of score updates costs one file write, not hundreds.
+   */
   private async persist(): Promise<void> {
+    if (this.persistTimer) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      this.persisting = this.persisting.then(() => this.writeToDisk());
+    }, 250);
+  }
+
+  private async writeToDisk(): Promise<void> {
     try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-      fs.writeFileSync(DB_FILE, JSON.stringify(this.state, null, 2), "utf-8");
+      await fs.promises.mkdir(DATA_DIR, { recursive: true });
+      const tmp = `${DB_FILE}.tmp`;
+      await fs.promises.writeFile(tmp, JSON.stringify(this.state), "utf-8");
+      await fs.promises.rename(tmp, DB_FILE);
     } catch (err) {
       console.error("Failed to persist database state to disk:", err);
     }
@@ -339,7 +355,10 @@ class DatabaseStore {
     const initialLen = this.state.documents.length;
     this.state.documents = this.state.documents.filter((d) => d.id !== id);
     this.state.nodes = this.state.nodes.filter((n) => n.documentId !== id);
+    const ids = new Set(this.state.sentences.filter((s) => s.documentId === id).map((s) => s.id));
     this.state.sentences = this.state.sentences.filter((s) => s.documentId !== id);
+    this.state.scores = this.state.scores.filter((sc) => !ids.has(sc.sentenceId));
+    this.state.suggestions = this.state.suggestions.filter((sg) => !ids.has(sg.sentenceId));
     await this.persist();
     return this.state.documents.length < initialLen;
   }
@@ -403,13 +422,17 @@ class DatabaseStore {
     documentId: string,
     nodes: DbDocumentNode[],
     sentences: DbSentence[],
-    scores: DbSentenceScore[],
-    suggestions: DbSuggestion[]
+    scores: DbSentenceScore[] = [],
+    suggestions: DbSuggestion[] = []
   ): Promise<void> {
     await this.load();
-    // Clear old records for this document
+    const oldIds = new Set(
+      this.state.sentences.filter((s) => s.documentId === documentId).map((s) => s.id)
+    );
     this.state.nodes = this.state.nodes.filter((n) => n.documentId !== documentId);
     this.state.sentences = this.state.sentences.filter((s) => s.documentId !== documentId);
+    this.state.scores = this.state.scores.filter((sc) => !oldIds.has(sc.sentenceId));
+    this.state.suggestions = this.state.suggestions.filter((sg) => !oldIds.has(sg.sentenceId));
 
     this.state.nodes.push(...nodes);
     this.state.sentences.push(...sentences);
@@ -422,6 +445,35 @@ class DatabaseStore {
   async findScoresBySentenceId(sentenceId: string): Promise<DbSentenceScore | null> {
     await this.load();
     return this.state.scores.find((sc) => sc.sentenceId === sentenceId) || null;
+  }
+
+  async findScoresByDocumentId(documentId: string): Promise<DbSentenceScore[]> {
+    await this.load();
+    const ids = new Set(
+      this.state.sentences.filter((s) => s.documentId === documentId).map((s) => s.id)
+    );
+    return this.state.scores.filter((sc) => ids.has(sc.sentenceId));
+  }
+
+  /** Inserts or replaces scores, one per sentence. */
+  async upsertScores(scores: DbSentenceScore[]): Promise<void> {
+    await this.load();
+    const incoming = new Map(scores.map((sc) => [sc.sentenceId, sc]));
+    this.state.scores = this.state.scores.filter((sc) => !incoming.has(sc.sentenceId));
+    this.state.scores.push(...scores);
+    await this.persist();
+  }
+
+  /** Replaces all cached suggestions for one sentence. */
+  async replaceSuggestions(sentenceId: string, suggestions: DbSuggestion[]): Promise<void> {
+    await this.load();
+    this.state.suggestions = this.state.suggestions.filter((sg) => sg.sentenceId !== sentenceId);
+    this.state.suggestions.push(...suggestions);
+    await this.persist();
+  }
+
+  async clearSuggestions(sentenceId: string): Promise<void> {
+    await this.replaceSuggestions(sentenceId, []);
   }
 
   async findSuggestionsBySentenceId(sentenceId: string): Promise<DbSuggestion[]> {

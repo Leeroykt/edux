@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/server/auth/authMiddleware";
 import { db } from "@/server/db/store";
-import { modelConnector } from "@/server/models/modelConnector";
-import { DbDocument, DbDocumentNode, DbSentence, DbSentenceScore, DbSuggestion } from "@/server/db/schema";
+import { startScan } from "@/server/jobs/scoring";
+import { DbDocument, DbDocumentNode, DbSentence } from "@/server/db/schema";
 
 export async function GET(req: NextRequest) {
   const auth = await authenticateRequest(req);
@@ -15,6 +15,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ documents: docs });
 }
 
+const CLIENT_ID = /^[A-Za-z0-9_-]{4,64}$/;
+
+/**
+ * Stores the parsed document and returns straight away. Scoring runs in the
+ * background; clients follow it through GET /documents/:id/scores.
+ */
 export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req);
   if ("error" in auth) {
@@ -34,16 +40,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const wanted = typeof body.id === "string" && CLIENT_ID.test(body.id) ? body.id : null;
+    if (wanted && (await db.findDocumentById(wanted))) {
+      return NextResponse.json(
+        { error: { code: "CONFLICT", message: "A document with this id already exists." } },
+        { status: 409 }
+      );
+    }
+    const docId = wanted ?? `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const versionId = "v_01";
 
     let totalWords = 0;
     const dbNodes: DbDocumentNode[] = [];
     const dbSentences: DbSentence[] = [];
-    const rawSentencesForScoring: { id: string; text: string }[] = [];
 
     paragraphs.forEach((p: any, pIdx: number) => {
-      const nodeId = `node_${docId}_${pIdx + 1}`;
+      const nodeId = typeof p.id === "string" ? p.id : `node_${docId}_${pIdx + 1}`;
       dbNodes.push({
         id: nodeId,
         documentId: docId,
@@ -55,12 +67,13 @@ export async function POST(req: NextRequest) {
 
       if (Array.isArray(p.sentences)) {
         p.sentences.forEach((s: any, sIdx: number) => {
-          const sText = s.text || "";
+          const sText = typeof s.text === "string" ? s.text : "";
           totalWords += sText.split(/\s+/).filter(Boolean).length;
-          const sentenceId = s.id || `s_${docId}_${pIdx}_${sIdx}`;
+          // Headings and quotations are not scored on their own.
+          const skip = p.type === "heading" || p.type === "blockquote";
 
           dbSentences.push({
-            id: sentenceId,
+            id: s.id || `s_${docId}_${pIdx}_${sIdx}`,
             nodeId,
             documentId: docId,
             paragraphIndex: pIdx,
@@ -68,88 +81,35 @@ export async function POST(req: NextRequest) {
             charStart: s.charStart || 0,
             charEnd: s.charEnd || sText.length,
             locked: !!s.locked,
-            ignored: !!s.ignored,
+            ignored: !!s.ignored || skip,
           });
-
-          rawSentencesForScoring.push({ id: sentenceId, text: sText });
         });
       }
     });
 
-    const calculatedPages = Math.max(1, Math.ceil(totalWords / 320));
+    await db.saveDocumentStructure(docId, dbNodes, dbSentences);
 
-    // Run AI detection (connects to friend's model server or fallback)
-    const scoresOutput = await modelConnector.detectSentences({
-      documentId: docId,
-      sentences: rawSentencesForScoring,
-    });
-
-    const dbScores: DbSentenceScore[] = scoresOutput.map((sc) => ({
-      id: `sc_${sc.sentenceId}`,
-      sentenceId: sc.sentenceId,
-      modelVersion: "v1.2-ensemble",
-      score: sc.score,
-      band: sc.band,
-      confidence: sc.confidence,
-      reasons: sc.reasons,
-      modelDetails: sc.modelDetails,
-    }));
-
-    // Pre-generate suggestions for flagged sentences
-    const dbSuggestions: DbSuggestion[] = [];
-    for (const sc of scoresOutput) {
-      if (sc.score >= 0.45) {
-        const sentenceObj = rawSentencesForScoring.find((s) => s.id === sc.sentenceId);
-        if (sentenceObj) {
-          const rewrites = await modelConnector.generateRewrites({
-            sentenceId: sentenceObj.id,
-            text: sentenceObj.text,
-          });
-          rewrites.forEach((rw) => {
-            dbSuggestions.push({
-              id: rw.id,
-              sentenceId: rw.sentenceId,
-              modelVersion: "qwen-academic-lora-v2",
-              text: rw.text,
-              strategy: rw.strategy,
-              meaningScore: rw.meaningScore,
-              scoreDelta: rw.scoreDelta,
-              plainExplanation: rw.plainExplanation,
-              lockedTokensPreserved: true,
-            });
-          });
-        }
-      }
-    }
-
-    // Save structure & scores into store
-    await db.saveDocumentStructure(docId, dbNodes, dbSentences, dbScores, dbSuggestions);
-
-    // Compute overall AI score
-    const avgAiScore =
-      dbScores.length > 0
-        ? Number((dbScores.reduce((acc, s) => acc + s.score, 0) / dbScores.length).toFixed(2))
-        : 0.15;
-
+    const now = new Date().toISOString();
     const newDoc: DbDocument = {
       id: docId,
       ownerId: user.id,
       folderId,
       title,
-      status: "ready",
+      status: "scanning",
       stage: "uploaded",
       currentVersionId: versionId,
       ownerDeclaredOwn,
       wordCount: totalWords,
-      pageCount: calculatedPages,
-      overallAiScore: avgAiScore,
-      similarityScore: 12,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      pageCount: Math.max(1, Math.ceil(totalWords / 320)),
+      overallAiScore: 0,
+      similarityScore: 0,
+      createdAt: now,
+      updatedAt: now,
     };
 
     await db.createDocument(newDoc);
     await db.incrementUsage(user.id, totalWords, 0);
+    startScan(docId);
 
     return NextResponse.json({ document: newDoc }, { status: 201 });
   } catch (err: any) {

@@ -1,34 +1,27 @@
 import { NextResponse } from "next/server";
+import { modelConnector } from "@/server/models/modelConnector";
 
 export async function GET() {
-  const modelUrl = process.env.MODEL_SERVICE_URL || null;
+  const configured = modelConnector.status().configured;
+  const reachable = configured ? await modelConnector.ping() : false;
+  const status = modelConnector.status();
 
   return NextResponse.json({
     status: "online",
-    integrationMode: modelUrl ? "connected_remote_service" : "integrated_reference_engine",
-    modelServiceUrl: modelUrl,
+    integrationMode: !configured
+      ? "reference_engine"
+      : reachable
+      ? "connected_remote_service"
+      : "remote_unreachable_using_reference",
+    configured,
+    reachable,
+    lastError: status.lastError,
+    lastOkAt: status.lastOkAt,
     contracts: {
-      detect: {
-        method: "POST",
-        path: "/api/v1/models/detect",
-        payload: {
-          documentId: "string (optional)",
-          sentences: [{ id: "string", text: "string" }],
-        },
-      },
-      rewrite: {
-        method: "POST",
-        path: "/api/v1/models/rewrite",
-        payload: {
-          sentenceId: "string",
-          text: "string",
-          tone: "'academic' | 'neutral' | 'conversational' (optional)",
-          strength: "'light' | 'moderate' | 'full' (optional)",
-          contextParagraph: "string (optional)",
-        },
-      },
+      detect: "POST {MODEL_SERVICE_URL}/v1/detect",
+      rewrite: "POST {MODEL_SERVICE_URL}/v1/rewrite",
+      health: "GET {MODEL_SERVICE_URL}/v1/health",
     },
-    documentation:
-      "To connect an external Python FastAPI / PyTorch model service, run your model server and set MODEL_SERVICE_URL=http://your-host:8000. It must expose POST /v1/detect and POST /v1/rewrite.",
+    env: ["MODEL_SERVICE_URL", "MODEL_SERVICE_TOKEN", "MODEL_TIMEOUT_MS", "MODEL_DETECT_BATCH", "MODEL_VERSION"],
   });
 }

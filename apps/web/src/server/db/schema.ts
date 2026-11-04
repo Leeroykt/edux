@@ -6,6 +6,7 @@ import {
   ScoreBand,
   ReasonChip,
   RewriteStrategy,
+  ScoreEngine,
   SourcePool,
   UsageSummary,
   VoiceProfile
@@ -21,6 +22,8 @@ export interface DbUser {
   country: string;
   timeZone: string;
   trustLevel: number;
+  institution?: string;
+  fieldOfStudy?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +51,8 @@ export interface DbDocument {
   overallAiScore: number;
   similarityScore: number;
   sourceObjectKey?: string;
+  scanDone?: number;
+  scanTotal?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -92,6 +97,7 @@ export interface DbSentenceScore {
   band: ScoreBand;
   confidence: number;
   reasons: ReasonChip[];
+  engine?: ScoreEngine;
   modelDetails?: {
     perplexityScore?: number;
     burstinessScore?: number;
@@ -109,6 +115,7 @@ export interface DbSuggestion {
   scoreDelta: number;
   plainExplanation: string;
   lockedTokensPreserved: boolean;
+  engine?: ScoreEngine;
 }
 
 export interface DbEditEvent {

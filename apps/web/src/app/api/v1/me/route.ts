@@ -21,6 +21,8 @@ export async function GET(req: NextRequest) {
       country: user.country,
       timeZone: user.timeZone,
       trustLevel: user.trustLevel,
+      institution: user.institution,
+      fieldOfStudy: user.fieldOfStudy,
       createdAt: user.createdAt,
     },
     usage,
@@ -35,14 +37,44 @@ export async function PATCH(req: NextRequest) {
 
   const { user } = auth;
   const body = await req.json();
-  const { name, country, timeZone, planType } = body;
+  // A plan can only change through billing, never through a profile edit.
+  const clean = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : undefined);
+  const name = clean(body.name, 120);
+  const country = clean(body.country, 80);
+  const timeZone = clean(body.timeZone, 80);
+  const institution = clean(body.institution, 160);
+  const fieldOfStudy = clean(body.fieldOfStudy, 160);
+
+  if (body.name !== undefined && !name) {
+    return NextResponse.json({ error: { code: "INVALID_PAYLOAD", message: "Your name cannot be empty." } }, { status: 422 });
+  }
 
   const updated = await db.updateUser(user.id, {
     ...(name ? { name } : {}),
-    ...(country ? { country } : {}),
+    ...(country !== undefined ? { country } : {}),
     ...(timeZone ? { timeZone } : {}),
-    ...(planType ? { planType } : {}),
+    ...(institution !== undefined ? { institution } : {}),
+    ...(fieldOfStudy !== undefined ? { fieldOfStudy } : {}),
   });
 
-  return NextResponse.json({ user: updated });
+  if (!updated) {
+    return NextResponse.json({ error: { code: "NOT_FOUND", message: "Account not found." } }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    user: {
+      id: updated.id,
+      email: updated.email,
+      name: updated.name,
+      planType: updated.planType,
+      role: updated.role,
+      country: updated.country,
+      timeZone: updated.timeZone,
+      trustLevel: updated.trustLevel,
+      institution: updated.institution,
+      fieldOfStudy: updated.fieldOfStudy,
+      createdAt: updated.createdAt,
+    },
+  });
+
 }

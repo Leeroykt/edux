@@ -2,17 +2,24 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@edux/schema'],
+  // The API is called from the same origin, so no cross-origin access is granted.
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
-          { key: "Access-Control-Allow-Origin", value: "*" },
-          { key: "Access-Control-Allow-Methods", value: "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
-          { key: "Access-Control-Allow-Headers", value: "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" },
-          { key: "Access-Control-Allow-Credentials", value: "true" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
         ],
       },
+    ];
+  },
+  async redirects() {
+    return [
+      { source: "/dashboard", destination: "/documents", permanent: true },
+      { source: "/plans", destination: "/settings?tab=plan", permanent: true },
+      { source: "/profile", destination: "/settings?tab=profile", permanent: true },
     ];
   },
 };

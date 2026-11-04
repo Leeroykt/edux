@@ -1,8 +1,16 @@
 import { SignJWT, jwtVerify } from "jose";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "edux_super_secure_academic_integrity_secret_key_2026"
-);
+function loadSecret(): Uint8Array {
+  const configured = process.env.JWT_SECRET?.trim();
+  if (configured && configured.length >= 32) return new TextEncoder().encode(configured);
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET must be set to a random value of at least 32 characters in production.");
+  }
+  // Local development only. Sessions made with this value are worthless in production.
+  return new TextEncoder().encode("dev-only-secret-do-not-use-in-production-0123456789");
+}
+
+const JWT_SECRET = loadSecret();
 
 export interface TokenPayload {
   sub: string; // User ID

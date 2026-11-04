@@ -6,7 +6,7 @@ import { signAccessToken, signRefreshToken } from "@/server/auth/jwt";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, password, name, planType = "individual" } = body;
+    const { email, password, name } = body;
 
     if (!email || !password || !name) {
       return NextResponse.json(
@@ -15,9 +15,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (password.length < 6) {
+    if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json(
-        { error: { code: "WEAK_PASSWORD", message: "Password must be at least 6 characters long." } },
+        { error: { code: "INVALID_EMAIL", message: "Enter a valid email address." } },
+        { status: 422 }
+      );
+    }
+
+    if (typeof password !== "string" || password.length < 8) {
+      return NextResponse.json(
+        { error: { code: "WEAK_PASSWORD", message: "Choose a password of at least 8 characters." } },
         { status: 422 }
       );
     }
@@ -35,7 +42,8 @@ export async function POST(req: NextRequest) {
       email,
       passwordHash,
       name,
-      planType: planType === "edu_pro" ? "edu_pro" : "individual",
+      // A paid plan can only come from billing, never from the sign-up form.
+      planType: "individual",
       role: "user",
       country: "Global",
       timeZone: "UTC",

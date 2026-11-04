@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/server/auth/authMiddleware";
 import { db } from "@/server/db/store";
+import { ownSentence } from "@/server/auth/access";
 
 export async function POST(
   req: NextRequest,
@@ -12,14 +13,14 @@ export async function POST(
   }
 
   const { id } = await params;
-  const sentence = await db.findSentenceById(id);
+  const sentence = await ownSentence(auth.user, id);
   if (!sentence) {
     return NextResponse.json({ error: { code: "NOT_FOUND", message: "Sentence not found." } }, { status: 404 });
   }
 
   try {
     const body = await req.json();
-    const { text, suggestionId } = body;
+    const { text, suggestionId, kind } = body;
 
     if (!text || typeof text !== "string") {
       return NextResponse.json(
@@ -36,8 +37,12 @@ export async function POST(
       );
     }
 
+    // The old score and candidates describe the previous text.
+    await db.clearSuggestions(id);
+
     // Increment suggestions quota count
-    await db.incrementUsage(auth.user.id, 0, 1);
+    // Spelling and grammar fixes are not counted against the daily rewrite allowance.
+    if (kind !== "spelling") await db.incrementUsage(auth.user.id, 0, 1);
 
     // Record audit
     await db.recordAudit(

@@ -4,8 +4,8 @@ import { verifyToken, signAccessToken, signRefreshToken } from "@/server/auth/jw
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { refreshToken } = body;
+    const body = await req.json().catch(() => ({}));
+    const refreshToken: string | undefined = req.cookies.get("edux_refresh_token")?.value || body.refreshToken;
 
     if (!refreshToken) {
       return NextResponse.json(
@@ -59,14 +59,34 @@ export async function POST(req: NextRequest) {
 
     const res = NextResponse.json({
       accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        planType: user.planType,
+        role: user.role,
+        country: user.country,
+        timeZone: user.timeZone,
+        trustLevel: user.trustLevel,
+        institution: user.institution,
+        fieldOfStudy: user.fieldOfStudy,
+        createdAt: user.createdAt,
+      },
     });
 
     res.cookies.set("edux_access_token", newAccessToken, {
       httpOnly: true,
+      sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
       maxAge: 7200,
+    });
+    res.cookies.set("edux_refresh_token", newRefreshToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/api/v1/auth",
+      maxAge: 7 * 24 * 60 * 60,
     });
 
     return res;

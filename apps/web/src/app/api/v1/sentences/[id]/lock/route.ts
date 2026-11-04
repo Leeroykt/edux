@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/server/auth/authMiddleware";
 import { db } from "@/server/db/store";
+import { ownSentence } from "@/server/auth/access";
 
 export async function POST(
   req: NextRequest,
@@ -12,6 +13,9 @@ export async function POST(
   }
 
   const { id } = await params;
+  if (!(await ownSentence(auth.user, id))) {
+    return NextResponse.json({ error: { code: "NOT_FOUND", message: "Sentence not found." } }, { status: 404 });
+  }
   const sentence = await db.toggleSentenceLock(id);
   if (!sentence) {
     return NextResponse.json({ error: { code: "NOT_FOUND", message: "Sentence not found." } }, { status: 404 });
