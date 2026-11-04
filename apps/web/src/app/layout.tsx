@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 import { ThemeProvider } from "../services/theme/themeContext";
+import { FeedbackProvider } from "../components/ui/feedback";
 
 export const metadata: Metadata = {
-  title: "eduX | Lossless Document Engine & Academic Integrity",
+  title: "eduX | Score and rewrite academic writing",
   description:
-    "Single-purpose web platform for .docx AI detection, Turnitin-style similarity reports, and lossless voice-preserving academic rewrites.",
+    "Find machine-sounding sentences in a .docx draft and rewrite them in your own voice, one checked suggestion at a time.",
   icons: {
     icon: "/icon.svg",
     shortcut: "/icon.svg",
@@ -40,13 +41,13 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
           rel="stylesheet"
         />
       </head>
       <body className="bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased font-sans">
         <ThemeProvider>
-          {children}
+          <FeedbackProvider>{children}</FeedbackProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -3,13 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #f1efea;
+  --foreground: #272b32;
 }
 
 .dark {
-  --background: #090d16;
-  --foreground: #f1f5f9;
+  --background: #14171c;
+  --foreground: #e4e1d9;
 }
 
 body {
@@ -20,10 +20,40 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Raleway Font specifically for headings and brand typography */
-h1, h2, h3, h4, h5, h6, .brand-font, .font-raleway {
-  font-family: 'Raleway', 'Inter', sans-serif;
-  letter-spacing: -0.01em;
+/* Editorial serif for page titles and brand; Inter stays for every control and label. */
+h1, h2, .brand-font, .font-raleway {
+  font-family: 'Newsreader', Georgia, serif;
+  letter-spacing: -0.015em;
+}
+
+/*
+ * Secondary text needs different greys in light and dark mode to stay readable in both.
+ * :where() keeps these overrides weaker than any explicit dark: class on an element.
+ */
+.dark :where(.text-slate-400) { color: #a6a49d; }
+.dark :where(.text-slate-500) { color: #a09e97; }
+.dark :where(.text-slate-600) { color: #b9b7af; }
+.dark :where(.placeholder\:text-slate-400)::placeholder { color: #8f8d86; }
+
+/* Respect a reader's request for less motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Visible keyboard focus everywhere, calm but unmistakable */
+:focus-visible {
+  outline: 2px solid #348189;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: rgba(52, 129, 137, 0.28);
 }
 
 /* Ensure document editor text keeps its typeface when bolded (does NOT change font family) */
@@ -54,8 +84,8 @@ h1, h2, h3, h4, h5, h6, .brand-font, .font-raleway {
 
 /* Crisp A4 Paper Styling with almost sharp corners */
 .word-a4-page {
-  background-color: #ffffff;
-  color: #1e293b;
+  background-color: #fffefc;
+  color: #272b32;
   width: 100%;
   max-width: 816px; /* Standard A4 / US Letter width at 96 DPI */
   min-height: 1056px;
@@ -64,9 +94,11 @@ h1, h2, h3, h4, h5, h6, .brand-font, .font-raleway {
   border-radius: 2px; /* Almost sharp corners as requested */
   border: 1px solid rgba(226, 232, 240, 0.85);
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 14px 28px -6px rgba(0, 0, 0, 0.06);
-  padding: 72px 80px 48px 80px; /* 1 inch standard academic margins with clean bottom clearance */
+  /* 1 inch margins on a full page; the side margins shrink with the page so the text never gets squeezed. */
+  padding: clamp(32px, 6vw, 72px) clamp(20px, 9.8%, 80px) 48px;
+  hyphens: auto;
   position: relative;
-  transition: all 0.2s ease-in-out;
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out;
   outline: none;
   display: flex;
   flex-direction: column;
@@ -81,29 +113,64 @@ h1, h2, h3, h4, h5, h6, .brand-font, .font-raleway {
 
 /* Dark mode sheet option */
 .word-a4-page-dark {
-  background-color: #111827 !important;
-  color: #f1f5f9 !important;
+  background-color: #1d2026 !important;
+  color: #e4e1d9 !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
   box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
 }
 
+/* Text on the paper follows the paper, not the app theme. */
+.word-a4-page { color: #1e293b; }
+.word-a4-page-dark { color: #f1f5f9; }
+.word-a4-page h2 { color: inherit; }
+.paper-rule { border-bottom: 1px solid rgba(100, 116, 139, 0.3); }
+.paper-card { background: rgba(100, 116, 139, 0.08); border: 1px solid rgba(100, 116, 139, 0.3); border-radius: 0.75rem; color: inherit; }
+.paper-th { background: rgba(100, 116, 139, 0.14); }
+.paper-quote { background: rgba(100, 116, 139, 0.08); color: inherit; }
+
+.sentence-selected {
+  background-color: rgba(52, 129, 137, 0.14);
+  box-shadow: 0 0 0 2px #348189;
+  border-radius: 2px;
+}
+.sentence-hover {
+  background-color: rgba(100, 116, 139, 0.14);
+  border-radius: 2px;
+}
+
+/* A sentence waiting for its score */
+@keyframes ai-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.ai-pending {
+  background-image: linear-gradient(90deg, rgba(100,116,139,0.06) 25%, rgba(100,116,139,0.2) 50%, rgba(100,116,139,0.06) 75%);
+  background-size: 200% 100%;
+  animation: ai-shimmer 1.6s linear infinite;
+  border-radius: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-pending { animation: none; }
+}
+
 /* AI Highlight bands */
 .ai-flagged-machine {
-  background-color: rgba(244, 63, 94, 0.16);
-  border-bottom: 2px solid #f43f5e;
+  background-color: rgba(200, 102, 95, 0.14);
+  border-bottom: 2px solid rgba(200, 102, 95, 0.75);
   border-radius: 2px;
 }
 
 .ai-flagged-uncertain {
-  background-color: rgba(245, 158, 11, 0.16);
-  border-bottom: 2px dashed #f59e0b;
+  background-color: rgba(200, 150, 74, 0.14);
+  border-bottom: 2px dashed rgba(200, 150, 74, 0.8);
   border-radius: 2px;
 }
 
 /* Humanised Preview Highlights */
 .humanised-preview-span {
-  background-color: rgba(16, 185, 129, 0.15);
-  border-bottom: 2px solid #10b981;
+  color: inherit;
+  background-color: rgba(63, 155, 122, 0.14);
+  border-bottom: 2px solid rgba(63, 155, 122, 0.8);
   border-radius: 2px;
 }
 

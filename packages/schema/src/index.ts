@@ -15,6 +15,8 @@ export interface User {
   country?: string;
   timeZone: string;
   trustLevel: number;
+  institution?: string;
+  fieldOfStudy?: string;
   createdAt: string;
 }
 
@@ -47,7 +49,13 @@ export type ReasonChip =
   | 'stock_transitions'
   | 'low_specificity'
   | 'repetitive_openers'
-  | 'academic_formulaic';
+  | 'academic_formulaic'
+  | 'repetitive_structure'
+  | 'cliche_collocations'
+  | 'unnatural_symmetry';
+
+/** Which engine produced a score: the connected model service or the built-in reference heuristic. */
+export type ScoreEngine = 'model' | 'reference';
 
 export interface SentenceScore {
   sentenceId: string;
@@ -55,6 +63,7 @@ export interface SentenceScore {
   band: ScoreBand;
   confidence: number;
   reasons: ReasonChip[];
+  engine?: ScoreEngine;
   modelDetails?: {
     perplexityScore?: number;
     burstinessScore?: number;
@@ -69,7 +78,8 @@ export type RewriteStrategy =
   | 'plain_phrasing'
   | 'split'
   | 'merge'
-  | 'academic_tone';
+  | 'academic_tone'
+  | 'scholarly_hedging';
 
 export interface SuggestionCandidate {
   id: string;
@@ -80,6 +90,7 @@ export interface SuggestionCandidate {
   scoreDelta: number; // e.g. -65% AI score
   plainExplanation: string;
   lockedTokensPreserved: boolean;
+  engine?: ScoreEngine;
 }
 
 export interface ProtectedAtom {
@@ -102,6 +113,10 @@ export interface DocumentSentence {
   charEnd: number;
   locked: boolean;
   ignored: boolean;
+  /** True once a rewrite or edit has replaced the original wording. */
+  edited?: boolean;
+  /** Wording before the first edit, kept so exports can show a tracked change. */
+  originalText?: string;
   score?: SentenceScore;
   similarityMatchId?: string;
 }
@@ -118,6 +133,8 @@ export interface DocumentParagraphNode {
   tableData?: string[][];
   imageUrl?: string;
   imageCaption?: string;
+  /** Figure width as a share of the page width (images only). */
+  widthPercent?: number;
   alignment?: 'left' | 'center' | 'right' | 'justify';
   isEmptyLine?: boolean;
   pageBreakBefore?: boolean;
