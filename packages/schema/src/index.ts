@@ -133,6 +133,8 @@ export interface DocumentParagraphNode {
   tableData?: string[][];
   imageUrl?: string;
   imageCaption?: string;
+  /** Set when Enter split this paragraph in the middle of a word, so Backspace can rejoin it without a space. */
+  splitMidWord?: boolean;
   /** Figure width as a share of the page width (images only). */
   widthPercent?: number;
   alignment?: 'left' | 'center' | 'right' | 'justify';

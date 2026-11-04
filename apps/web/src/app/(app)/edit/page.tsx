@@ -13,7 +13,7 @@ import {
 } from "@edux/schema";
 import { apiClient } from "../../../services/api/apiClient";
 import { MOCK_SUGGESTIONS } from "../../../services/api/mockData";
-import { EditorToolbar } from "../../../components/editor/EditorToolbar";
+import { EditorToolbar, Align } from "../../../components/editor/EditorToolbar";
 import { DocumentEditor } from "../../../components/editor/DocumentEditor";
 import { InspectorPanel } from "../../../components/editor/InspectorPanel";
 import { LatexEquationModal } from "../../../components/editor/LatexEquationModal";
@@ -26,6 +26,9 @@ import { useScan } from "../../../hooks/useScan";
 import { useSession } from "../../../hooks/useSession";
 import { useConfirm, useToast } from "../../../components/ui/feedback";
 import { convertSpelling, findSpellingIssues, dialectLabel } from "../../../lib/dialect";
+import { EquationMap, keepsEquations } from "../../../lib/equations";
+import { hasFormatting, reconcile } from "../../../lib/editing";
+import { splitSentenceTexts } from "../../../lib/sentences";
 
 interface HistoryItem {
   sentenceId: string;
@@ -87,6 +90,8 @@ export default function WordEditorPage() {
   const [allDocuments, setAllDocuments] = useState<DocumentMeta[]>([]);
   const [isDocPickerOpen, setIsDocPickerOpen] = useState<boolean>(false);
   const [paragraphs, setParagraphs] = useState<DocumentParagraphNode[]>([]);
+  const paragraphsRef = useRef<DocumentParagraphNode[]>([]);
+  paragraphsRef.current = paragraphs;
   const [selectedSentence, setSelectedSentence] = useState<DocumentSentence | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestionCandidate[]>([]);
   const [suggestionsMap, setSuggestionsMap] = useState<Record<string, SuggestionCandidate[]>>({});
@@ -98,6 +103,9 @@ export default function WordEditorPage() {
   const [rescoring, setRescoring] = useState<Record<string, boolean>>({});
   const [prefetching, setPrefetching] = useState(false);
   const [isLoadingDoc, setIsLoadingDoc] = useState(true);
+  const [equations, setEquations] = useState<EquationMap>({});
+  const [editRequest, setEditRequest] = useState<{ id: string; offset: number | null; nonce: number } | null>(null);
+  const idCounter = useRef(0);
   const [equationLatex, setEquationLatex] = useState(
     "\\text{Attention}(Q, K, V) = \\text{softmax}\\left(\\frac{Q K^T}{\\sqrt{d_k}}\\right) V"
   );
@@ -138,6 +146,9 @@ export default function WordEditorPage() {
   // Keyboard shortcut listener for Undo (Ctrl+Z) and Redo (Ctrl+Y or Ctrl+Shift+Z)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // While typing, undo and redo belong to the text being edited.
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.("[data-editing]") || target?.isContentEditable) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         handleUndo();
@@ -191,6 +202,7 @@ export default function WordEditorPage() {
           try {
             setDocumentMeta(activeStored.meta);
             setParagraphs(activeStored.paragraphs);
+            setEquations(activeStored.equations ?? {});
             setSimilarityReport(null);
             setAllDocuments([activeStored.meta, ...libraryDocs]);
 
@@ -354,10 +366,10 @@ export default function WordEditorPage() {
   useEffect(() => {
     if (!documentMeta || !documentMeta.id.startsWith("doc_user_") || paragraphs.length === 0) return;
     const t = setTimeout(() => {
-      setActiveDocument(documentMeta, paragraphs).catch(() => {});
+      setActiveDocument(documentMeta, paragraphs, equations).catch(() => {});
     }, 1200);
     return () => clearTimeout(t);
-  }, [documentMeta, paragraphs]);
+  }, [documentMeta, paragraphs, equations]);
 
   // Handle switching document from document picker
   const handleSelectDocumentFromPicker = async (targetDoc: DocumentMeta) => {
@@ -373,6 +385,7 @@ export default function WordEditorPage() {
       if (activeStored && activeStored.meta?.id === targetDoc.id && activeStored.paragraphs) {
         setDocumentMeta(activeStored.meta);
         setParagraphs(activeStored.paragraphs);
+        setEquations(activeStored.equations ?? {});
         setSuggestionsMap({});
         setScanDocId(needsScan(activeStored.meta, activeStored.paragraphs) ? activeStored.meta.id : null);
         return;
@@ -552,6 +565,10 @@ export default function WordEditorPage() {
   // Apply Single Rewrite
   const handleApplyRewrite = (candidate: SuggestionCandidate) => {
     if (!selectedSentence) return;
+    if (!keepsEquations(selectedSentence.text, candidate.text)) {
+      toast.show("That rewrite would drop an equation from this sentence, so it was not applied.", { kind: "error" });
+      return;
+    }
 
     setUndoStack((prev) => [
       { sentenceId: selectedSentence.id, text: selectedSentence.text, score: selectedSentence.score },
@@ -585,7 +602,7 @@ export default function WordEditorPage() {
       const history: HistoryItem[] = [];
       for (const s of flagged) {
         const top = current[s.id]?.[0];
-        if (top && top.meaningScore >= 90) {
+        if (top && top.meaningScore >= 90 && keepsEquations(s.text, top.text)) {
           history.push({ sentenceId: s.id, text: s.text, score: s.score });
           applied += 1;
         } else {
@@ -598,7 +615,7 @@ export default function WordEditorPage() {
         setRedoStack([]);
         for (const s of flagged) {
           const top = current[s.id]?.[0];
-          if (top && top.meaningScore >= 90) replaceSentenceText(s.id, top.text, top.id);
+          if (top && top.meaningScore >= 90 && keepsEquations(s.text, top.text)) replaceSentenceText(s.id, top.text, top.id);
         }
         showNotice(
           applied > 0
@@ -811,9 +828,11 @@ export default function WordEditorPage() {
 
   const handleDocumentUploaded = (
     doc: DocumentMeta,
-    parsedParagraphs: DocumentParagraphNode[]
+    parsedParagraphs: DocumentParagraphNode[],
+    foundEquations: EquationMap = {}
   ) => {
     suggestAbort.current?.abort();
+    setEquations(foundEquations);
     setDocumentMeta(doc);
     setParagraphs(parsedParagraphs);
     setSelectedSentence(null);
@@ -829,6 +848,210 @@ export default function WordEditorPage() {
   const flaggedSentences = paragraphs
     .flatMap((p) => p.sentences)
     .filter((s) => s.score && s.score.score >= aiThreshold && !s.locked);
+
+  /* ---- Paragraph alignment ---- */
+  const selectedNode = selectedSentence
+    ? paragraphs.find((p) => p.sentences.some((s) => s.id === selectedSentence.id))
+    : undefined;
+  const canAlign = !!selectedNode && !["image", "table"].includes(selectedNode.type);
+
+  const handleAlign = (align: Align) => {
+    if (!selectedNode) {
+      toast.show("Click a paragraph first, then choose how to align it.", { kind: "info" });
+      return;
+    }
+    const before = selectedNode.alignment;
+    setParagraphs((prev) => prev.map((p) => (p.id === selectedNode.id ? { ...p, alignment: align } : p)));
+    toast.show(`Paragraph ${align === "justify" ? "justified" : align === "center" ? "centred" : `aligned ${align}`}.`, {
+      kind: "success",
+      ms: 5000,
+      action: {
+        label: "Undo",
+        onClick: () => setParagraphs((prev) => prev.map((p) => (p.id === selectedNode.id ? { ...p, alignment: before } : p))),
+      },
+    });
+  };
+
+  const handleJustifyAll = async () => {
+    const targets = paragraphs.filter((p) => p.type === "paragraph" && !p.isEmptyLine && p.styleName !== "Caption" && p.alignment !== "justify" && p.alignment !== "center");
+    if (targets.length === 0) {
+      toast.show("All body paragraphs are already justified or centred.");
+      return;
+    }
+    const ok = await confirm({
+      title: `Justify ${targets.length} paragraph${targets.length === 1 ? "" : "s"}?`,
+      message: "Headings, captions, tables, lists and centred text are left as they are. You can undo this.",
+      confirmLabel: "Justify",
+    });
+    if (!ok) return;
+    const before = new Map(targets.map((p) => [p.id, p.alignment]));
+    setParagraphs((prev) => prev.map((p) => (before.has(p.id) ? { ...p, alignment: "justify" } : p)));
+    toast.show(`Justified ${targets.length} paragraph${targets.length === 1 ? "" : "s"}.`, {
+      kind: "success",
+      ms: 8000,
+      action: {
+        label: "Undo",
+        onClick: () => setParagraphs((prev) => prev.map((p) => (before.has(p.id) ? { ...p, alignment: before.get(p.id) } : p))),
+      },
+    });
+  };
+
+  /* ---- Typing in the page ---- */
+  const countWords = (nodes: DocumentParagraphNode[]) =>
+    nodes.reduce((n, p) => n + p.sentences.reduce((m, s) => m + s.text.split(/\s+/).filter(Boolean).length, 0), 0);
+
+  const newSentenceId = (nodeId: string) => `${nodeId}_t${Date.now().toString(36)}${(idCounter.current++).toString(36)}`;
+
+  /** Puts an edited paragraph list into effect straight away, so the next keystroke sees it. */
+  const applyNodes = (next: DocumentParagraphNode[]) => {
+    paragraphsRef.current = next;
+    setParagraphs(next);
+    const words = countWords(next);
+    setDocumentMeta((m) => (m ? { ...m, wordCount: words, pageCount: Math.max(1, Math.ceil(words / 320)), updatedAt: new Date().toISOString() } : m));
+    setIsSaving(true);
+    setTimeout(() => setIsSaving(false), 600);
+  };
+
+  /** Saves the changed paragraphs and then re-scores only the sentences that changed. */
+  const saveEdits = async (changedNodeIds: string[], removedNodeIds: string[], next: DocumentParagraphNode[], rescoreIds: string[]) => {
+    const meta = documentMeta;
+    if (!meta || !meta.id.startsWith("doc_user_")) return;
+    const byId = new Map(next.map((n) => [n.id, n]));
+    const ok = await apiClient.syncDocument(meta.id, {
+      nodes: changedNodeIds
+        .map((id) => byId.get(id))
+        .filter((n): n is DocumentParagraphNode => !!n)
+        .map((n) => ({
+          id: n.id,
+          type: n.type,
+          styleName: n.styleName,
+          sentences: n.sentences.map((x) => ({ id: x.id, text: x.text, locked: x.locked, ignored: x.ignored })),
+        })),
+      removedNodeIds,
+      order: next.map((n) => n.id),
+      wordCount: countWords(next),
+    });
+    if (!ok) return;
+
+    const texts = new Map(next.flatMap((n) => n.sentences.map((x) => [x.id, x] as const)));
+    const todo = rescoreIds.filter((id) => {
+      const x = texts.get(id);
+      return x && !x.ignored && !x.locked && x.text.split(/\s+/).filter(Boolean).length >= 8;
+    });
+    if (todo.length === 0) return;
+    setRescoring((prev) => ({ ...prev, ...Object.fromEntries(todo.map((id) => [id, true])) }));
+    let i = 0;
+    const worker = async () => {
+      while (i < todo.length) {
+        const id = todo[i++];
+        const score = await apiClient.rescoreSentence(id, texts.get(id)!.text);
+        setRescoring((prev) => {
+          const { [id]: _done, ...rest } = prev;
+          return rest;
+        });
+        if (score) mergeScores([score]);
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  };
+
+  const commitParagraph = (pId: string, text: string, html: string, reason: "idle" | "blur") => {
+    const nodes = paragraphsRef.current;
+    const idx = nodes.findIndex((p) => p.id === pId);
+    if (idx < 0) return;
+    const node = nodes[idx];
+    const clean = text.replace(/\s+/g, " ").trim();
+
+    if (!clean) {
+      // An emptied paragraph goes away once the writer leaves it.
+      if (reason === "blur" && nodes.length > 1) {
+        const next = nodes.filter((p) => p.id !== pId).map((p, i) => ({ ...p, orderNo: i + 1 }));
+        applyNodes(next);
+        void saveEdits([], [pId], next, []);
+      }
+      return;
+    }
+
+    const texts = splitSentenceTexts(clean);
+    const single = texts.length === 1 && hasFormatting(html) ? html.trim() : undefined;
+    const result = reconcile(node.sentences, texts, node.id, idx, () => newSentenceId(node.id), single);
+    if (!result.dirty) return;
+
+    const next = nodes.map((p) => (p.id === pId ? { ...p, sentences: result.sentences } : p));
+    applyNodes(next);
+    setSelectedSentence((cur) => (cur && result.removedIds.includes(cur.id) ? null : cur));
+    void saveEdits([pId], [], next, result.changedIds);
+  };
+
+  const splitParagraph = (pId: string, text: string, _html: string, offset: number) => {
+    const nodes = paragraphsRef.current;
+    const idx = nodes.findIndex((p) => p.id === pId);
+    if (idx < 0) return;
+    const node = nodes[idx];
+    const before = text.slice(0, offset).replace(/\s+$/, "");
+    const after = text.slice(offset).replace(/^\s+/, "");
+    if (!before.trim()) return; // Enter at the very start does nothing
+
+    const firstTexts = splitSentenceTexts(before);
+    const first = reconcile(node.sentences, firstTexts, node.id, idx, () => newSentenceId(node.id));
+    const newNodeId = `${node.id}_p${Date.now().toString(36)}`;
+    // Sentences that moved down into the new paragraph keep their identity, score and history.
+    const moved = node.sentences.filter((x) => first.removedIds.includes(x.id));
+    const second = reconcile(moved, splitSentenceTexts(after), newNodeId, idx + 1, () => newSentenceId(newNodeId));
+
+    const midWord = /\S/.test(text[offset - 1] ?? "") && /\S/.test(text[offset] ?? "");
+    const created: DocumentParagraphNode = {
+      id: newNodeId,
+      splitMidWord: midWord || undefined,
+      documentId: node.documentId,
+      type: node.type === "heading" ? "paragraph" : node.type,
+      styleName: node.type === "heading" ? "Body Text" : node.styleName,
+      listType: node.listType,
+      level: node.type === "list_item" ? node.level : undefined,
+      alignment: node.type === "heading" ? undefined : node.alignment,
+      sentences: second.sentences,
+      orderNo: idx + 2,
+    };
+    const next = [...nodes.slice(0, idx), { ...node, sentences: first.sentences }, created, ...nodes.slice(idx + 1)].map((p, i) => ({ ...p, orderNo: i + 1 }));
+    applyNodes(next);
+    setEditRequest({ id: newNodeId, offset: 0, nonce: Date.now() });
+    void saveEdits([pId, newNodeId], [], next, [...first.changedIds, ...second.changedIds]);
+  };
+
+  const mergeParagraph = (pId: string, text: string, html: string) => {
+    const nodes = paragraphsRef.current;
+    const idx = nodes.findIndex((p) => p.id === pId);
+    if (idx <= 0) return;
+    const node = nodes[idx];
+    const prev = nodes[idx - 1];
+    const mergeable = ["paragraph", "list_item", "blockquote"];
+    if (prev.type !== node.type || !mergeable.includes(node.type) || prev.sentences.length === 0) return;
+
+    const clean = text.replace(/\s+/g, " ").trim();
+    const prevText = prev.sentences.map((x) => x.text).join(" ");
+    let merged: DocumentParagraphNode;
+    let changedIds: string[];
+    let junction = prevText.length;
+
+    if (node.splitMidWord) {
+      // Enter split a word in two, so the halves go back together with no space.
+      const all = [...prev.sentences, ...node.sentences];
+      const result = reconcile(all, splitSentenceTexts(prevText + clean), prev.id, idx - 1, () => newSentenceId(prev.id));
+      merged = { ...prev, sentences: result.sentences };
+      changedIds = result.changedIds;
+    } else {
+      const texts = splitSentenceTexts(clean);
+      const single = texts.length === 1 && hasFormatting(html) ? html.trim() : undefined;
+      const mine = reconcile(node.sentences, texts, prev.id, idx - 1, () => newSentenceId(prev.id), single);
+      merged = { ...prev, sentences: [...prev.sentences, ...mine.sentences] };
+      changedIds = mine.changedIds;
+    }
+
+    const next = nodes.filter((p) => p.id !== pId).map((p) => (p.id === prev.id ? merged : p)).map((p, i) => ({ ...p, orderNo: i + 1 }));
+    applyNodes(next);
+    setEditRequest({ id: prev.id, offset: junction, nonce: Date.now() });
+    void saveEdits([prev.id], [pId], next, changedIds);
+  };
 
   /* ---- English variant: find and convert spelling from the other variant ---- */
   const spellingTargets = useMemo(() => {
@@ -913,8 +1136,8 @@ export default function WordEditorPage() {
   useEffect(() => {
     const onCommand = (e: Event) => commandRef.current((e as CustomEvent).detail);
     const onLoaded = (e: Event) => {
-      const { doc, paragraphs: paras } = (e as CustomEvent).detail;
-      handleDocumentUploaded(doc, paras);
+      const { doc, paragraphs: paras, equations: eq } = (e as CustomEvent).detail;
+      handleDocumentUploaded(doc, paras, eq);
     };
     window.addEventListener("edux:command", onCommand);
     window.addEventListener("edux:document-loaded", onLoaded);
@@ -964,6 +1187,10 @@ export default function WordEditorPage() {
         onFocus={() => setFocusMode((f) => !f)}
         inspectorOpen={isInspectorOpen}
         onToggleInspector={() => setIsInspectorOpen((o) => !o)}
+        alignment={selectedNode?.alignment}
+        canAlign={canAlign}
+        onAlign={handleAlign}
+        onJustifyAll={handleJustifyAll}
       />
 
       {!focusMode && spellingIssues > 0 && (
@@ -1022,6 +1249,13 @@ export default function WordEditorPage() {
           isScanning={isScanning}
           isLoading={isLoadingDoc}
           equationLatex={equationLatex}
+          equations={equations}
+          onCommitParagraph={commitParagraph}
+          onSplitParagraph={splitParagraph}
+          onMergeParagraph={mergeParagraph}
+          editRequest={editRequest}
+          lang={prefs.dialect}
+          onUnsupportedEdit={(what) => toast.show(`${what} is not available while typing yet. Alignment and rewrites work as usual.`)}
           rescoring={rescoring}
           hideStatusHeader
           scanBanner={
@@ -1075,6 +1309,7 @@ export default function WordEditorPage() {
         onClose={() => setIsExportModalOpen(false)}
         documentTitle={documentMeta?.title || "Sample paper"}
         paragraphs={paragraphs}
+        equations={equations}
         onExported={() => completeStep("exported")}
       />
       <DocumentPickerModal

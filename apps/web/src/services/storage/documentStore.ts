@@ -1,10 +1,13 @@
 "use client";
 
 import { DocumentMeta, DocumentParagraphNode } from "@edux/schema";
+import { EquationMap } from "../../lib/equations";
 
 export interface StoredDocument {
   meta: DocumentMeta;
   paragraphs: DocumentParagraphNode[];
+  /** Equations found in the file, keyed by the id used in the text tokens. */
+  equations?: EquationMap;
   timestamp: number;
 }
 
@@ -45,11 +48,13 @@ function openIndexedDB(): Promise<IDBDatabase | null> {
  */
 export async function setActiveDocument(
   meta: DocumentMeta,
-  paragraphs: DocumentParagraphNode[]
+  paragraphs: DocumentParagraphNode[],
+  equations: EquationMap = {}
 ): Promise<void> {
   const docPayload: StoredDocument = {
     meta,
     paragraphs,
+    equations,
     timestamp: Date.now(),
   };
 

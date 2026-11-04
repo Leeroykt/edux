@@ -18,12 +18,20 @@ import mammoth from "mammoth";
 import { DocumentMeta, DocumentParagraphNode, DocumentSentence, ScoreBand } from "@edux/schema";
 import { apiClient } from "../../services/api/apiClient";
 import { setActiveDocument } from "../../services/storage/documentStore";
+import { extractEquations } from "../../services/docx/equations";
+import { splitSentenceTexts } from "../../lib/sentences";
+import { EquationMap } from "../../lib/equations";
 
 interface UploadDocxModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onDocumentLoaded?: (doc: DocumentMeta, paragraphs: DocumentParagraphNode[]) => void;
+  onDocumentLoaded?: (doc: DocumentMeta, paragraphs: DocumentParagraphNode[], equations: EquationMap) => void;
 }
+
+/** Removes the alignment hints this parser adds to the text before it reads paragraphs back. */
+const stripMarkersHtml = (h: string) => h.replace(/<!--align:[a-zA-Z]+-->|&lt;!--align:[a-zA-Z]+--&gt;/g, "");
+const stripMarkers = (t: string) =>
+  t.replace(/<!--align:[a-zA-Z]+-->|&lt;!--align:[a-zA-Z]+--&gt;/g, "").replace(/\s+/g, " ").trim();
 
 export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
   isOpen,
@@ -51,9 +59,14 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
 
     try {
       let rawHtml = "";
+      let equationMap: EquationMap = {};
 
       if (file.name.endsWith(".docx")) {
-        const arrayBuffer = await file.arrayBuffer();
+        const original = await file.arrayBuffer();
+        // Word equations are set aside first, because the text converter would drop them.
+        const extracted = await extractEquations(original).catch(() => ({ buffer: original, equations: {} as EquationMap }));
+        equationMap = extracted.equations;
+        const arrayBuffer = extracted.buffer;
         setStep(2); // Parsing OOXML with mammoth
         const mammothOptions = {
           ignoreEmptyParagraphs: false,
@@ -143,7 +156,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
           if (tagName === "TABLE") {
             const trs = Array.from(el.querySelectorAll("tr"));
             const tableData: string[][] = trs.map((tr) =>
-              Array.from(tr.querySelectorAll("th, td")).map((c) => c.textContent?.trim() || "")
+              Array.from(tr.querySelectorAll("th, td")).map((c) => stripMarkers(c.textContent || ""))
             );
 
             const cellTexts = tableData.flat().filter(Boolean);
@@ -160,7 +173,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
               documentId: docId,
               type: "table",
               tableData,
-              rawHtml: el.outerHTML,
+              rawHtml: stripMarkersHtml(el.outerHTML),
               styleName: "Academic Table",
               orderNo: pIdx + 1,
               sentences: cellSentences,
@@ -172,21 +185,28 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
           if (tagName === "UL" || tagName === "OL") {
             const lis = Array.from(el.querySelectorAll("li"));
             lis.forEach((li, liIdx) => {
-              const liText = li.textContent?.trim() || "";
+              // A list item's own words only: sub-lists become items of their own.
+              const own = li.cloneNode(true) as HTMLElement;
+              own.querySelectorAll("ul,ol").forEach((n) => n.remove());
+              const liText = stripMarkers(own.textContent || "");
               if (!liText) return;
+              let depth = 0;
+              for (let a = li.parentElement; a && a !== el; a = a.parentElement) if (a.tagName === "LI") depth += 1;
+              const kind = li.parentElement?.tagName === "OL" ? "number" : "bullet";
               const words = liText.split(/\s+/).filter(Boolean).length;
               totalWordCount += words;
 
-              const sentences = splitIntoSentences(liText, pIdx + liIdx, sentenceCounter, li.innerHTML);
+              const sentences = splitIntoSentences(liText, pIdx + liIdx, sentenceCounter, stripMarkersHtml(own.innerHTML));
               sentenceCounter += sentences.length;
 
               parsedParagraphs.push({
                 id: `p_real_${pIdx + 1}_li_${liIdx + 1}`,
                 documentId: docId,
                 type: "list_item",
-                listType: tagName === "OL" ? "number" : "bullet",
-                htmlContent: li.innerHTML,
-                styleName: tagName === "OL" ? "Numbered List" : "Bullet List",
+                listType: kind,
+                level: depth,
+                htmlContent: stripMarkersHtml(own.innerHTML),
+                styleName: kind === "number" ? "Numbered List" : "Bullet List",
                 orderNo: pIdx + 1 + liIdx,
                 sentences,
               });
@@ -314,6 +334,35 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         throw new Error("Could not extract readable text from this document. Please ensure it is a valid .docx file.");
       }
 
+      // Captions: "Figure 3.1: ..." under a figure belongs to that figure, and "Table 3.1: ..." is a caption too.
+      const CAPTION = /^(figure|fig\.?|table)\s*[\dA-Za-z]+([.\-]\d+)*\s*[:.\-\u2013\u2014]/i;
+      const FIGURE_CAPTION = /^(figure|fig\.?)\s*[\dA-Za-z]+([.\-]\d+)*\s*[:.\-\u2013\u2014]/i;
+      const textOf = (n: DocumentParagraphNode) => n.sentences.map((x) => x.text).join(" ").trim();
+      for (let i = 0; i < parsedParagraphs.length; i++) {
+        const node = parsedParagraphs[i];
+        if (node.type === "image") {
+          let j = i + 1;
+          while (j < parsedParagraphs.length && parsedParagraphs[j].isEmptyLine) j++;
+          const next = parsedParagraphs[j];
+          if (next && next.type === "paragraph" && FIGURE_CAPTION.test(textOf(next)) && textOf(next).length < 300) {
+            node.imageCaption = textOf(next);
+            parsedParagraphs.splice(i + 1, j - i);
+          }
+        } else if (node.type === "paragraph" && !node.isEmptyLine) {
+          const t = textOf(node);
+          if (CAPTION.test(t) && t.length < 300) {
+            node.styleName = "Caption";
+            node.alignment = "center";
+            node.sentences.forEach((x) => {
+              x.ignored = true;
+            });
+          }
+        }
+      }
+      parsedParagraphs.forEach((n, idx) => {
+        n.orderNo = idx + 1;
+      });
+
       // Give every node and sentence an id that is unique across documents,
       // and make each sentence point at the paragraph that holds it.
       parsedParagraphs.forEach((p) => {
@@ -344,7 +393,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
       };
 
       // The browser keeps the full document so the editor opens instantly.
-      await setActiveDocument(newDocMeta, parsedParagraphs);
+      await setActiveDocument(newDocMeta, parsedParagraphs, equationMap);
 
       // The server scores it in the background; the editor follows progress.
       apiClient
@@ -352,7 +401,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
         .catch((err) => console.warn("Failed to persist uploaded document:", err));
 
       setIsProcessing(false);
-      onDocumentLoaded?.(newDocMeta, parsedParagraphs);
+      onDocumentLoaded?.(newDocMeta, parsedParagraphs, equationMap);
       onClose();
       router.push("/edit");
     } catch (err: any) {
@@ -372,43 +421,8 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
     const trimmed = text.trim();
     if (!trimmed) return [];
 
-    // If it's a short title or heading, preserve as a single sentence without fragmenting on periods
-    if (trimmed.length < 80 && !trimmed.includes(". ")) {
-      return [
-        {
-          id: `s_real_${startCounter}`,
-          nodeId: `p_real_${pIdx + 1}`,
-          paragraphIndex: pIdx,
-          text: trimmed,
-          formattedHtml: formattedHtml || undefined,
-          charStart: 0,
-          charEnd: trimmed.length,
-          locked: false,
-          ignored: false,
-        },
-      ];
-    }
-
-    // Protect abbreviations, numbered lists (1. Introduction), and decimals (0.05)
-    const DOT_PLACEHOLDER = "___EDUX_DOT___";
-    const protectedText = trimmed
-      // Numbered headings like "1. ", "2.1. "
-      .replace(/(^|\s)(\d+)\.(\s+)/g, "$1$2" + DOT_PLACEHOLDER + "$3")
-      .replace(/(^|\s)(\d+\.\d+)\.(\s+)/g, "$1$2" + DOT_PLACEHOLDER + "$3")
-      // Decimals like 0.05, 3.14
-      .replace(/(\d+)\.(\d+)/g, "$1" + DOT_PLACEHOLDER + "$2")
-      // Academic abbreviations
-      .replace(/\b(Dr|Mr|Mrs|Ms|Prof|Sr|Jr)\./gi, "$1" + DOT_PLACEHOLDER)
-      .replace(/\b(et al|i\.e|e\.g|vs|cf|vol|pp|p|ed|eds)\./gi, (m) => m.replace(/\./g, DOT_PLACEHOLDER));
-
-    // Split on punctuation followed by whitespace and an uppercase letter/quote
-    const rawSplits = protectedText.split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/);
-
-    const rawSentences = rawSplits
-      .map((s) => s.replace(new RegExp(DOT_PLACEHOLDER, "g"), ".").trim())
-      .filter((s) => s.length > 0);
-
-    const finalSentences = rawSentences.length > 0 ? rawSentences : [trimmed];
+    const finalSentences = splitSentenceTexts(trimmed);
+    if (finalSentences.length === 0) return [];
 
     let charCursor = 0;
 

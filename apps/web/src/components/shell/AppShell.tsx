@@ -92,9 +92,9 @@ const UploadGate: React.FC<{ open: boolean; onClose: () => void }> = ({ open, on
     <UploadDocxModal
       isOpen={open}
       onClose={onClose}
-      onDocumentLoaded={(doc: DocumentMeta, paragraphs: DocumentParagraphNode[]) => {
+      onDocumentLoaded={(doc: DocumentMeta, paragraphs: DocumentParagraphNode[], equations) => {
         completeStep("uploaded");
-        window.dispatchEvent(new CustomEvent("edux:document-loaded", { detail: { doc, paragraphs } }));
+        window.dispatchEvent(new CustomEvent("edux:document-loaded", { detail: { doc, paragraphs, equations } }));
       }}
     />
   );

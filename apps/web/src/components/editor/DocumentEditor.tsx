@@ -8,7 +8,11 @@ import {
 } from "@edux/schema";
 import katex from "katex";
 import "katex/dist/katex.min.css";
+import { EquationMap, TOKEN_REGEX, hasEquation } from "../../lib/equations";
 import { EditorBottomBar } from "./EditorBottomBar";
+import { EditableParagraph } from "./EditableParagraph";
+import { EQ_ATTR, caretFromPoint, offsetOf } from "../../lib/editing";
+import { splitSentenceTexts } from "../../lib/sentences";
 import { AcademicFigure } from "./AcademicFigure";
 import { HelpTooltip } from "../ui/HelpTooltip";
 import {
@@ -86,6 +90,17 @@ interface DocumentEditorProps {
   isLoading?: boolean;
   /** LaTeX of the sample document's displayed equation. */
   equationLatex?: string;
+  /** Equations found in an uploaded file, keyed by the id in the text tokens. */
+  equations?: EquationMap;
+  /** Typing: the paragraph now says this. */
+  onCommitParagraph?: (paragraphId: string, text: string, html: string, reason: "idle" | "blur") => void;
+  onSplitParagraph?: (paragraphId: string, text: string, html: string, offset: number) => void;
+  onMergeParagraph?: (paragraphId: string, text: string, html: string) => void;
+  /** Ask the editor to start typing in a paragraph, for example after Enter splits one. */
+  editRequest?: { id: string; offset: number | null; nonce: number } | null;
+  /** Language tag used for the browser's own spell check while typing. */
+  lang?: string;
+  onUnsupportedEdit?: (what: string) => void;
   /** Sentences being re-scored after an applied rewrite. */
   rescoring?: Record<string, boolean>;
   /** Progress or error strip shown under the status header. */
@@ -153,6 +168,13 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   isScanning = false,
   isLoading = false,
   equationLatex = "",
+  equations = {},
+  onCommitParagraph,
+  onSplitParagraph,
+  onMergeParagraph,
+  editRequest = null,
+  lang = "en-GB",
+  onUnsupportedEdit,
   rescoring = {},
   scanBanner = null,
 }) => {
@@ -258,6 +280,116 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     setWordSuggestions(null);
   };
 
+  const escapeHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const equationHtml = React.useMemo(() => {
+    const cache = new Map<string, string>();
+    return (id: string): string => {
+      const hit = cache.get(id);
+      if (hit !== undefined) return hit;
+      const eq = equations[id];
+      let html = '<span class="text-slate-500 italic">[equation]</span>';
+      if (eq?.latex) {
+        try {
+          html = katex.renderToString(eq.latex, { displayMode: eq.display, throwOnError: false });
+        } catch {
+          html = `<code>${escapeHtml(eq.latex)}</code>`;
+        }
+      }
+      html = `<span ${EQ_ATTR}="${id}" contenteditable="false" class="eq-atom">${html}</span>`;
+      cache.set(id, html);
+      return html;
+    };
+  }, [equations]);
+
+  /** A sentence's body: plain text, saved formatting, or text with its equations drawn in. */
+  const renderBody = (s: DocumentSentence): React.ReactNode => {
+    if (hasEquation(s.text)) {
+      const html = (s.formattedHtml ?? escapeHtml(s.text)).replace(TOKEN_REGEX(), (_m, id: string) => equationHtml(id));
+      return <span dangerouslySetInnerHTML={{ __html: html }} />;
+    }
+    return s.formattedHtml ? <span dangerouslySetInnerHTML={{ __html: s.formattedHtml }} /> : s.text;
+  };
+
+  /** 1, 2, 3 for each numbered list, restarting after anything that is not part of the list. */
+  const listNumbers = React.useMemo(() => {
+    const out = new Map<string, number>();
+    const counters: number[] = [];
+    for (const n of paragraphs) {
+      if (n.type !== "list_item") {
+        counters.length = 0;
+        continue;
+      }
+      const lvl = n.level || 0;
+      counters.length = lvl + 1;
+      counters[lvl] = (counters[lvl] || 0) + 1;
+      if (n.listType === "number") out.set(n.id, counters[lvl]);
+    }
+    return out;
+  }, [paragraphs]);
+
+  /* ---- Typing ---- */
+  const EDITABLE_TYPES = ["paragraph", "heading", "list_item", "blockquote"];
+  const [editing, setEditing] = useState<{ id: string; offset: number | null } | null>(null);
+
+  useEffect(() => {
+    if (editRequest) setEditing({ id: editRequest.id, offset: editRequest.offset });
+  }, [editRequest?.nonce]);
+
+  // Typing is for your own words, so it is off in Preview, where the page shows suggestions.
+  const canType = humaniseViewMode !== "humanised_preview";
+
+  const handleSentenceClick = (e: React.MouseEvent, sentence: DocumentSentence) => {
+    const sel = window.getSelection();
+    if (sel && sel.toString().trim().length > 0) return; // choosing text, not placing a caret
+    onSelectSentence(sentence);
+    if (!canType || sentence.locked) return;
+    const holder = (e.currentTarget as HTMLElement).closest("[data-pid]") as HTMLElement | null;
+    if (!holder) return;
+    const para = paragraphs.find((x) => x.id === holder.dataset.pid);
+    if (!para || !EDITABLE_TYPES.includes(para.type)) return;
+    const pos = caretFromPoint(e.clientX, e.clientY);
+    const offset = pos && holder.contains(pos.node) ? offsetOf(holder, pos.node, pos.offset) : null;
+    setEditing({ id: para.id, offset });
+  };
+
+  /** While typing, keep the review panel on the sentence the caret is in. */
+  const handleCaret = (para: DocumentParagraphNode, text: string, offset: number) => {
+    const parts = splitSentenceTexts(text);
+    if (parts.length !== para.sentences.length) return;
+    let start = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const at = text.indexOf(parts[i], start);
+      const from = at < 0 ? start : at;
+      const end = from + parts[i].length;
+      if (offset <= end || i === parts.length - 1) {
+        if (para.sentences[i].id !== selectedSentenceId) onSelectSentence(para.sentences[i]);
+        return;
+      }
+      start = end;
+    }
+  };
+
+  const renderParagraphBody = (para: DocumentParagraphNode): React.ReactNode => {
+    if (editing?.id === para.id && canType) {
+      return (
+        <EditableParagraph
+          key={`edit-${para.id}-${editRequest?.nonce ?? 0}`}
+          sentences={para.sentences}
+          equationHtml={equationHtml}
+          initialOffset={editing.offset}
+          lang={lang}
+          onCommit={(text, html, reason) => onCommitParagraph?.(para.id, text, html, reason)}
+          onSplit={(text, html, offset) => onSplitParagraph?.(para.id, text, html, offset)}
+          onMergeWithPrevious={(text, html) => onMergeParagraph?.(para.id, text, html)}
+          onCaret={(text, offset) => handleCaret(para, text, offset)}
+          onExit={() => setEditing((cur) => (cur?.id === para.id ? null : cur))}
+          onUnsupported={(what) => onUnsupportedEdit?.(what)}
+        />
+      );
+    }
+    return <span data-pid={para.id}>{para.sentences.map(renderSentenceSpan)}</span>;
+  };
+
   const renderSentenceSpan = (sentence: DocumentSentence) => {
     const isSelected = selectedSentenceId === sentence.id;
     const isHovered = hoveredSentenceId === sentence.id;
@@ -303,14 +435,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       return (
         <span
           key={sentence.id}
-          onClick={() => onSelectSentence(sentence)}
+          onClick={(e) => handleSentenceClick(e, sentence)}
           className={`cursor-text ${isSelected ? "sentence-selected" : ""}`}
         >
-          {sentence.formattedHtml ? (
-            <span dangerouslySetInnerHTML={{ __html: sentence.formattedHtml }} />
-          ) : (
-            sentence.text
-          )}{" "}
+          {renderBody(sentence)}{" "}
         </span>
       );
     }
@@ -341,12 +469,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     return (
       <span
         key={sentence.id}
-        onClick={() => {
-          const sel = window.getSelection();
-          if (!sel || sel.toString().trim().length === 0) {
-            onSelectSentence(sentence);
-          }
-        }}
+        onClick={(e) => handleSentenceClick(e, sentence)}
         onMouseEnter={() => setHoveredSentenceId(sentence.id)}
         onMouseLeave={() => setHoveredSentenceId(null)}
         className={spanClasses}
@@ -358,11 +481,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             : undefined
         }
       >
-        {sentence.formattedHtml ? (
-          <span dangerouslySetInnerHTML={{ __html: sentence.formattedHtml }} />
-        ) : (
-          sentence.text
-        )}{" "}
+        {renderBody(sentence)}{" "}
         {sentence.locked && (
           <span
             onClick={(e) => {
@@ -678,7 +797,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                         }`}
                         style={{ fontFamily: "inherit" }}
                       >
-                        {p.sentences.map(renderSentenceSpan)}
+                        {renderParagraphBody(p)}
                       </h2>
                     </div>
                   );
@@ -723,15 +842,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                                   {row.map((cell, cIdx) => (
                                     <td
                                       key={cIdx}
-                                      contentEditable
+                                      contentEditable={!hasEquation(cell)}
                                       suppressContentEditableWarning
+                                      {...(hasEquation(cell)
+                                        ? { dangerouslySetInnerHTML: { __html: escapeHtml(cell).replace(TOKEN_REGEX(), (_m, id: string) => equationHtml(id)) } }
+                                        : {})}
                                       onBlur={(e) => {
                                         const text = e.currentTarget.textContent || "";
                                         if (text !== cell) onTableCellEdit(p.id, rIdx, cIdx, text);
                                       }}
                                       className="border border-slate-400/50 px-3.5 py-2 text-xs sm:text-sm outline-none focus:bg-elite-500/10 min-w-[4rem]"
                                     >
-                                      {cell}
+                                      {hasEquation(cell) ? undefined : cell}
                                     </td>
                                   ))}
                                 </tr>
@@ -752,13 +874,14 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
                 // 3. Bullet & Numbered List Items
                 if (p.type === "list_item") {
+                  const level = p.level || 0;
                   return (
-                    <div key={p.id} className="flex items-start gap-2.5 my-1.5 ml-4 text-justify">
+                    <div key={p.id} style={{ marginLeft: `${1 + level * 1.5}rem` }} className={`flex items-start gap-2.5 my-1.5 ${p.alignment === "center" ? "text-center" : p.alignment === "right" ? "text-right" : p.alignment === "left" ? "text-left" : "text-justify"}`}>
                       <span className="text-slate-400 dark:text-slate-500 font-bold select-none mt-0.5 text-xs">
-                        {p.listType === "number" ? `${p.orderNo || 1}.` : "•"}
+                        {p.listType === "number" ? `${listNumbers.get(p.id) ?? 1}.` : level > 0 ? "◦" : "•"}
                       </span>
                       <div className="flex-1">
-                        {p.sentences.map(renderSentenceSpan)}
+                        {renderParagraphBody(p)}
                       </div>
                     </div>
                   );
@@ -769,9 +892,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   return (
                     <blockquote
                       key={p.id}
-                      className="border-l-4 border-elite-500 pl-4 py-1.5 my-4 italic paper-quote rounded-r-xl"
+                      className={`border-l-4 border-elite-500 pl-4 py-1.5 my-4 italic paper-quote rounded-r-xl ${p.alignment === "center" ? "text-center" : p.alignment === "right" ? "text-right" : p.alignment === "justify" ? "text-justify" : ""}`}
                     >
-                      {p.sentences.map(renderSentenceSpan)}
+                      {renderParagraphBody(p)}
                     </blockquote>
                   );
                 }
@@ -816,8 +939,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
                 return (
                   <div key={p.id} className={`space-y-3 ${pAlign}`}>
-                    <div className={`${pAlign} leading-relaxed`}>
-                      {p.sentences.map(renderSentenceSpan)}
+                    <div className={`${pAlign} leading-relaxed ${p.styleName === "Caption" ? "text-[0.92em] italic opacity-90" : ""}`}>
+                      {renderParagraphBody(p)}
                     </div>
                   </div>
                 );

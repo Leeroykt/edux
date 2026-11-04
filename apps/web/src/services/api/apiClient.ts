@@ -369,6 +369,24 @@ export class EduxApiClient {
     }
   }
 
+  /** Saves typed changes: the paragraphs that changed, the ones removed, and the paragraph order. */
+  async syncDocument(
+    docId: string,
+    payload: {
+      nodes: { id: string; type: string; styleName?: string; sentences: { id: string; text: string; locked: boolean; ignored: boolean }[] }[];
+      removedNodeIds: string[];
+      order: string[];
+      wordCount: number;
+    }
+  ): Promise<boolean> {
+    try {
+      const res = await this.fetchWithAuth(`/documents/${docId}/sync`, { method: "POST", body: JSON.stringify(payload) });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async startScan(docId: string): Promise<boolean> {
     try {
       const res = await this.fetchWithAuth(`/documents/${docId}/score`, { method: "POST" });

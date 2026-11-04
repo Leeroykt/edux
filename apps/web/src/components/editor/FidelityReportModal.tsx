@@ -2,12 +2,14 @@ import React, { useEffect, useMemo, useState } from "react";
 import { X, Download, CheckCircle2, ListChecks, FileCheck, FileCode, Check, AlertCircle } from "lucide-react";
 import { DocumentParagraphNode } from "@edux/schema";
 import { downloadDocxFile, summariseExport } from "../../services/docx/docxExport";
+import { EquationMap } from "../../lib/equations";
 
 interface FidelityReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   documentTitle: string;
   paragraphs?: DocumentParagraphNode[];
+  equations?: EquationMap;
   onExported?: () => void;
 }
 
@@ -16,6 +18,7 @@ export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
   onClose,
   documentTitle,
   paragraphs = [],
+  equations = {},
   onExported,
 }) => {
   const [exportMode, setExportMode] = useState<"clean" | "tracked">("clean");
@@ -41,7 +44,7 @@ export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
     setIsExporting(true);
     setError(null);
     try {
-      await downloadDocxFile(documentTitle, paragraphs, { exportMode });
+      await downloadDocxFile(documentTitle, paragraphs, { exportMode, equations });
       onExported?.();
       setIsExporting(false);
       setExportComplete(true);
@@ -145,6 +148,7 @@ export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
               <div className="flex justify-between"><span>List items</span><span className="font-mono">{summary.listItems}</span></div>
               <div className="flex justify-between"><span>Tables</span><span className="font-mono">{summary.tables}</span></div>
               <div className="flex justify-between"><span>Images</span><span className="font-mono">{summary.imagesIncluded}</span></div>
+              <div className="flex justify-between"><span>Equations</span><span className="font-mono">{summary.equations}</span></div>
               <div className="flex justify-between">
                 <span>Sentences you rewrote</span>
                 <span className="font-mono">{summary.editedSentences}</span>
@@ -163,7 +167,7 @@ export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
               </div>
             )}
             <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-800">
-              The file is rebuilt from the text, headings, lists, tables, images and basic formatting shown in the editor. Word equations, headers, footers and footnotes are not carried over yet, so check the file before you submit it.
+              The file is rebuilt from the text, headings, lists, tables, images and basic formatting shown in the editor. Word equations are kept as real Word equations. Headers, footers and footnotes are not carried over yet, so check the file before you submit it.
             </p>
           </div>
 

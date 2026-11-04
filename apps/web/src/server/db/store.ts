@@ -441,6 +441,74 @@ class DatabaseStore {
     await this.persist();
   }
 
+  /**
+   * Applies edits made by typing: the given paragraphs get exactly these sentences,
+   * removed paragraphs disappear, and the whole document takes the stated order.
+   * A sentence whose wording changed loses its old score and suggestions.
+   */
+  async syncNodes(
+    documentId: string,
+    nodes: { id: string; type: DbDocumentNode["type"]; styleName?: string; sentences: DbSentence[] }[],
+    removedNodeIds: string[],
+    order: string[]
+  ): Promise<void> {
+    await this.load();
+    const dropSentences = (ids: Set<string>) => {
+      if (ids.size === 0) return;
+      this.state.sentences = this.state.sentences.filter((x) => !ids.has(x.id));
+      this.state.scores = this.state.scores.filter((x) => !ids.has(x.sentenceId));
+      this.state.suggestions = this.state.suggestions.filter((x) => !ids.has(x.sentenceId));
+    };
+
+    // A sentence can move between the paragraphs saved together, so none of these are dropped as "gone".
+    const incomingIds = new Set(nodes.flatMap((n) => n.sentences.map((x) => x.id)));
+
+    for (const node of nodes) {
+      const existing = this.state.nodes.find((n) => n.documentId === documentId && n.id === node.id);
+      if (existing) {
+        existing.type = node.type;
+        if (node.styleName) existing.styleName = node.styleName;
+      } else {
+        const versionId = this.state.nodes.find((n) => n.documentId === documentId)?.versionId ?? "v_01";
+        this.state.nodes.push({ id: node.id, documentId, versionId, type: node.type, styleName: node.styleName, orderNo: 0 });
+      }
+
+      const keep = new Map(node.sentences.map((x) => [x.id, x]));
+      const before = this.state.sentences.filter((x) => x.documentId === documentId && x.nodeId === node.id);
+      // Sentences that are gone from this paragraph.
+      dropSentences(new Set(before.filter((x) => !keep.has(x.id) && !incomingIds.has(x.id)).map((x) => x.id)));
+      // Sentences whose wording changed: the score and suggestions described the old words.
+      const reworded = new Set(before.filter((x) => keep.has(x.id) && keep.get(x.id)!.text !== x.text).map((x) => x.id));
+      if (reworded.size) {
+        this.state.scores = this.state.scores.filter((x) => !reworded.has(x.sentenceId));
+        this.state.suggestions = this.state.suggestions.filter((x) => !reworded.has(x.sentenceId));
+      }
+      for (const incoming of node.sentences) {
+        const at = this.state.sentences.findIndex((x) => x.id === incoming.id);
+        if (at >= 0) this.state.sentences[at] = { ...this.state.sentences[at], ...incoming, documentId };
+        else this.state.sentences.push({ ...incoming, documentId });
+      }
+    }
+
+    // Removed last, so sentences moved into another paragraph are not deleted with the old one.
+    for (const nodeId of removedNodeIds) {
+      dropSentences(new Set(this.state.sentences.filter((x) => x.documentId === documentId && x.nodeId === nodeId).map((x) => x.id)));
+      this.state.nodes = this.state.nodes.filter((n) => !(n.documentId === documentId && n.id === nodeId));
+    }
+
+    order.forEach((id, i) => {
+      const n = this.state.nodes.find((x) => x.documentId === documentId && x.id === id);
+      if (n) n.orderNo = i + 1;
+    });
+    // Keep each sentence's paragraph position in step with the order.
+    const position = new Map(order.map((id, i) => [id, i]));
+    this.state.sentences.forEach((x) => {
+      if (x.documentId === documentId && position.has(x.nodeId)) x.paragraphIndex = position.get(x.nodeId)!;
+    });
+
+    await this.persist();
+  }
+
   /* ---------------- SCORES & SUGGESTIONS ---------------- */
   async findScoresBySentenceId(sentenceId: string): Promise<DbSentenceScore | null> {
     await this.load();

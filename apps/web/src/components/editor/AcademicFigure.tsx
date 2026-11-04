@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Crop,
   ArrowUp,
@@ -50,7 +50,8 @@ export const AcademicFigure: React.FC<AcademicFigureProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [isCropOpen, setIsCropOpen] = useState(false);
   const [isEditingCaption, setIsEditingCaption] = useState(false);
-  const [captionText, setCaptionText] = useState(caption || "Figure 1: Document image illustration.");
+  const [captionText, setCaptionText] = useState(caption ?? "");
+  useEffect(() => setCaptionText(caption ?? ""), [caption]);
 
   // Alignment container classes
   let containerClasses = "relative group select-none transition-all duration-200 my-4 ";
@@ -224,7 +225,7 @@ export const AcademicFigure: React.FC<AcademicFigureProps> = ({
         <div className="relative rounded border border-slate-200 dark:border-slate-700/80 p-1 bg-white dark:bg-slate-900 group-hover:border-elite-400 group-hover:shadow-md transition-all">
           <img
             src={url}
-            alt={captionText}
+            alt={captionText || "Figure"}
             className="w-full h-auto object-contain rounded-xs max-h-[380px] mx-auto"
           />
         </div>
@@ -252,10 +253,15 @@ export const AcademicFigure: React.FC<AcademicFigureProps> = ({
           ) : (
             <span
               onClick={() => setIsEditingCaption(true)}
-              className="text-xs font-serif italic text-slate-500 dark:text-slate-400 hover:text-elite-600 cursor-pointer inline-block"
+              className={`text-xs font-serif italic hover:text-elite-600 cursor-pointer inline-block ${
+                captionText ? "text-slate-600 dark:text-slate-400" : "text-slate-500 opacity-0 group-hover:opacity-100 focus:opacity-100"
+              }`}
               title="Click to edit caption"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && setIsEditingCaption(true)}
             >
-              {captionText}
+              {captionText || "Add a caption"}
             </span>
           )}
         </figcaption>

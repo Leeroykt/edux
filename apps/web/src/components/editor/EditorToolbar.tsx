@@ -21,8 +21,14 @@ import {
   Undo2,
   Wand2,
   Check,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
 } from "lucide-react";
 import { DIALECTS, Dialect, dialectLabel } from "../../lib/dialect";
+
+export type Align = "left" | "center" | "right" | "justify";
 
 export type ViewMode = "original_flags" | "humanised_preview" | "split" | "clean";
 
@@ -144,6 +150,11 @@ interface Props {
   onFocus: () => void;
   inspectorOpen: boolean;
   onToggleInspector: () => void;
+  /** Alignment of the paragraph being edited, if one is selected. */
+  alignment?: Align;
+  canAlign: boolean;
+  onAlign: (a: Align) => void;
+  onJustifyAll: () => void;
 }
 
 export const EditorToolbar: React.FC<Props> = (p) => {
@@ -206,6 +217,29 @@ export const EditorToolbar: React.FC<Props> = (p) => {
               <Redo2 className="w-4 h-4" />
             </button>
 
+            <div role="group" aria-label="Paragraph alignment" className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5">
+              {([
+                { id: "left", label: "Align left", icon: AlignLeft },
+                { id: "center", label: "Centre", icon: AlignCenter },
+                { id: "right", label: "Align right", icon: AlignRight },
+                { id: "justify", label: "Justify", icon: AlignJustify },
+              ] as const).map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => p.onAlign(a.id)}
+                  disabled={!p.canAlign}
+                  aria-label={a.label}
+                  aria-pressed={p.alignment === a.id}
+                  title={p.canAlign ? a.label : "Click a paragraph first"}
+                  className={`p-1.5 rounded-md ${
+                    p.alignment === a.id ? "bg-elite-600 text-white" : "text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800"
+                  } disabled:opacity-40 disabled:hover:bg-transparent`}
+                >
+                  <a.icon className="w-4 h-4" />
+                </button>
+              ))}
+            </div>
+
             <Menu title="Insert" label={<><Plus className="w-3.5 h-3.5" /> Insert</>}>
               {(close) => (
                 <>
@@ -231,6 +265,9 @@ export const EditorToolbar: React.FC<Props> = (p) => {
                       {SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                   </div>
+                  <button onClick={() => { close(); p.onJustifyAll(); }} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800">
+                    Justify all body text
+                  </button>
                   <button onClick={() => { p.onPaperTheme(); close(); }} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800">
                     {p.paperTheme === "white" ? "Use a dark page" : "Use a light page"}
                   </button>

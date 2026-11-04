@@ -15,12 +15,16 @@ import {
 } from "docx";
 import { saveAs } from "file-saver";
 import { DocumentParagraphNode, DocumentSentence } from "@edux/schema";
+import { EquationMap, tokensOf } from "../../lib/equations";
+import { restoreEquations } from "./equations";
 
 export interface DocxExportOptions {
   exportMode?: "clean" | "tracked";
   fontFamily?: string;
   fontSizePt?: number;
   author?: string;
+  /** Equations found in the uploaded file; restored as real Word equations. */
+  equations?: EquationMap;
 }
 
 export interface ExportSummary {
@@ -31,6 +35,7 @@ export interface ExportSummary {
   imagesIncluded: number;
   imagesSkipped: number;
   editedSentences: number;
+  equations: number;
 }
 
 const DATA_URI = /^data:image\/(png|jpe?g|gif|bmp);base64,/i;
@@ -45,6 +50,7 @@ export function summariseExport(paragraphs: DocumentParagraphNode[]): ExportSumm
     imagesIncluded: 0,
     imagesSkipped: 0,
     editedSentences: 0,
+    equations: 0,
   };
   for (const p of paragraphs) {
     if (p.isEmptyLine) continue;
@@ -56,6 +62,11 @@ export function summariseExport(paragraphs: DocumentParagraphNode[]): ExportSumm
       else out.imagesSkipped += 1;
     } else out.paragraphs += 1;
     out.editedSentences += p.sentences.filter((s) => s.edited).length;
+    // A table is exported from its cells, so its cell sentences are not counted again.
+    out.equations +=
+      p.type === "table" && p.tableData
+        ? p.tableData.flat().reduce((n, c) => n + tokensOf(c).length, 0)
+        : p.sentences.reduce((n, s) => n + tokensOf(s.text).length, 0);
   }
   return out;
 }
@@ -139,10 +150,13 @@ export async function exportDocumentToDocx(
     const runs: (TextRun | InsertedTextRun | DeletedTextRun)[] = [];
     p.sentences.forEach((s, idx) => {
       const gap = idx < p.sentences.length - 1 ? " " : "";
-      if (exportMode === "tracked" && s.edited && s.originalText && s.originalText !== s.text) {
-        runs.push(
-          new DeletedTextRun({ text: s.originalText, id: revisionId++, author, date: when, font: fontFamily, size })
-        );
+      if (exportMode === "tracked" && s.edited && s.originalText !== undefined && s.originalText !== s.text) {
+        // A sentence typed from scratch has no earlier wording, so it is only an insertion.
+        if (s.originalText) {
+          runs.push(
+            new DeletedTextRun({ text: s.originalText, id: revisionId++, author, date: when, font: fontFamily, size })
+          );
+        }
         runs.push(
           new InsertedTextRun({ text: s.text + gap, id: revisionId++, author, date: when, font: fontFamily, size })
         );
@@ -150,22 +164,36 @@ export async function exportDocumentToDocx(
       }
       const segments = styledSegments(s);
       segments.forEach((seg, i) => {
-        runs.push(
-          new TextRun({
-            text: seg.text + (i === segments.length - 1 ? gap : ""),
-            font: fontFamily,
-            size,
-            bold: extra.bold || seg.style.bold,
-            italics: extra.italics || seg.style.italics,
-            underline: seg.style.underline ? {} : undefined,
-          })
-        );
+        const text = seg.text + (i === segments.length - 1 ? gap : "");
+        // Each equation token gets a run of its own so it can be swapped for the real equation.
+        text.split(/(⟦EQ:[A-Za-z0-9_-]+⟧)/).filter(Boolean).forEach((piece) => {
+          runs.push(
+            new TextRun({
+              text: piece,
+              font: fontFamily,
+              size,
+              bold: extra.bold || seg.style.bold,
+              italics: extra.italics || seg.style.italics,
+              underline: seg.style.underline ? {} : undefined,
+            })
+          );
+        });
       });
     });
     return runs;
   };
 
+  // Each numbered list counts from 1: give every run of items its own numbering instance.
+  let numberedRun = 0;
+  let inNumberedRun = false;
+
   for (const p of paragraphs) {
+    if (p.type === "list_item" && p.listType === "number") {
+      if (!inNumberedRun) numberedRun += 1;
+      inNumberedRun = true;
+    } else if (p.type !== "list_item") {
+      inNumberedRun = false;
+    }
     if (p.isEmptyLine) {
       docChildren.push(new Paragraph({ children: [] }));
       continue;
@@ -200,9 +228,11 @@ export async function exportDocumentToDocx(
                 new TableCell({
                   children: [
                     new Paragraph({
-                      children: [
-                        new TextRun({ text: cellText.trim(), bold: rIdx === 0, font: fontFamily, size: 20 }),
-                      ],
+                      children: cellText
+                        .trim()
+                        .split(/(⟦EQ:[A-Za-z0-9_-]+⟧)/)
+                        .filter(Boolean)
+                        .map((piece) => new TextRun({ text: piece, bold: rIdx === 0, font: fontFamily, size: 20 })),
                     }),
                   ],
                   shading: rIdx === 0 ? { fill: "F3F4F6" } : undefined,
@@ -216,8 +246,8 @@ export async function exportDocumentToDocx(
       docChildren.push(
         new Paragraph({
           ...(p.listType === "number"
-            ? { numbering: { reference: "edux-numbered", level: 0 } }
-            : { bullet: { level: 0 } }),
+            ? { numbering: { reference: "edux-numbered", level: Math.min(p.level || 0, 3), instance: numberedRun } }
+            : { bullet: { level: Math.min(p.level || 0, 3) } }),
           spacing: { after: 80, line: 276 },
           children: sentenceRuns(p, 24),
         })
@@ -262,6 +292,14 @@ export async function exportDocumentToDocx(
           );
         }
       }
+    } else if (p.styleName === "Caption") {
+      docChildren.push(
+        new Paragraph({
+          alignment: alignmentFor(p, AlignmentType.CENTER),
+          spacing: { before: 120, after: 160 },
+          children: sentenceRuns(p, 21, { italics: true }),
+        })
+      );
     } else {
       docChildren.push(
         new Paragraph({
@@ -285,7 +323,13 @@ export async function exportDocumentToDocx(
       config: [
         {
           reference: "edux-numbered",
-          levels: [{ level: 0, format: "decimal", text: "%1.", alignment: AlignmentType.START }],
+          levels: [0, 1, 2, 3].map((level) => ({
+            level,
+            format: "decimal" as const,
+            text: `%${level + 1}.`,
+            alignment: AlignmentType.START,
+            style: { paragraph: { indent: { left: 720 + level * 360, hanging: 360 } } },
+          })),
         },
       ],
     },
@@ -297,7 +341,8 @@ export async function exportDocumentToDocx(
     ],
   });
 
-  return Packer.toBlob(doc);
+  const blob = await Packer.toBlob(doc);
+  return restoreEquations(blob, options.equations ?? {});
 }
 
 /** Triggers a browser download of the .docx file. */

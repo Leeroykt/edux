@@ -229,3 +229,7 @@ h1, h2, .brand-font, .font-raleway {
 .indent-2 {
   margin-left: 4rem;
 }
+
+/* Typing */
+.sent-locked { background: rgba(100, 116, 139, 0.1); border-radius: 2px; cursor: not-allowed; }
+.eq-atom { cursor: default; user-select: all; }

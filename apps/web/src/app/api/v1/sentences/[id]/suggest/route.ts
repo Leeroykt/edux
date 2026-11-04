@@ -4,6 +4,7 @@ import { db } from "@/server/db/store";
 import { ownSentence } from "@/server/auth/access";
 import { modelConnector } from "@/server/models/modelConnector";
 import { DbSuggestion } from "@/server/db/schema";
+import { keepsEquations } from "@/lib/equations";
 
 /** Cached suggestions for a sentence, if any. Never calls the model. */
 export async function GET(
@@ -66,7 +67,10 @@ export async function POST(
     dialect: options.dialect === "en-US" ? "en-US" : options.dialect === "en-GB" ? "en-GB" : undefined,
   });
 
-  const rows: DbSuggestion[] = candidates.map((c) => ({
+  // A rewrite that loses an equation would change the paper's meaning, so it is never offered.
+  const rows: DbSuggestion[] = candidates
+    .filter((c) => keepsEquations(sentence.text, c.text))
+    .map((c) => ({
     id: c.id,
     sentenceId: id,
     modelVersion: c.engine === "model" ? process.env.MODEL_VERSION || "model-service" : "reference-heuristic",
