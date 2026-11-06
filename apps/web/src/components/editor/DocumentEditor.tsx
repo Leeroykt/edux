@@ -4,8 +4,10 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   DocumentParagraphNode,
   DocumentSentence,
+  DocxLayout,
   SuggestionCandidate
 } from "@edux/schema";
+import { BlockMeasure, PX_PER_PT, cssPx, layoutTabs, measureBlock } from "../../lib/docxLayout";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { EquationMap, TOKEN_REGEX, hasEquation } from "../../lib/equations";
@@ -108,6 +110,8 @@ interface DocumentEditorProps {
   rescoring?: Record<string, boolean>;
   /** Progress or error strip shown under the status header. */
   scanBanner?: React.ReactNode;
+  /** Page setup from a Word file. When present the pages are drawn exactly as Word lays them out. */
+  layout?: DocxLayout;
 }
 
 const ACADEMIC_SYNONYMS: Record<string, string[]> = {
@@ -191,7 +195,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onUnsupportedEdit,
   rescoring = {},
   scanBanner = null,
+  layout,
 }) => {
+  const fid = !!layout;
   const [hoveredSentenceId, setHoveredSentenceId] = useState<string | null>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -271,6 +277,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       document.removeEventListener("keyup", handleKeyUp);
     };
   }, [updateSelectionBubble]);
+
+  // The bubble follows its selection while scrolling, and goes away when the selection does.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const onScroll = () => updateSelectionBubble();
+    box.addEventListener("scroll", onScroll, { passive: true });
+    return () => box.removeEventListener("scroll", onScroll);
+  }, [updateSelectionBubble]);
+  useEffect(() => {
+    updateSelectionBubble();
+  }, [paragraphs, updateSelectionBubble]);
 
   const [formatMenu, setFormatMenu] = useState<"color" | "bg" | "more" | null>(null);
   useEffect(() => {
@@ -446,8 +464,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
-  const renderParagraphBody = (para: DocumentParagraphNode): React.ReactNode => {
-    if (editing?.id === para.id && canType) {
+  const renderParagraphBody = (para: DocumentParagraphNode, allowEdit = true): React.ReactNode => {
+    if (allowEdit && editing?.id === para.id && canType) {
       return (
         <EditableParagraph
           key={`edit-${para.id}-${editRequest?.nonce ?? 0}`}
@@ -460,7 +478,13 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           onMergeWithPrevious={(text, html) => onMergeParagraph?.(para.id, text, html)}
           onCaret={(text, offset) => handleCaret(para, text, offset)}
           onExit={() => setEditing((cur) => (cur?.id === para.id ? null : cur))}
-          onUnsupported={(what) => onUnsupportedEdit?.(what)}
+          onUnsupported={(what) => {
+            if (what === "b" || what === "i" || what === "u") {
+              const sel = window.getSelection();
+              if (sel && !sel.isCollapsed) applyFormat({ type: "toggle", key: what });
+              else onUnsupportedEdit?.("Select some text first, then press the shortcut to format it.");
+            } else onUnsupportedEdit?.(what);
+          }}
         />
       );
     }
@@ -521,7 +545,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
 
     // Original AI Flagged Mode
-    let spanClasses = "transition-all duration-150 inline relative rounded-xs px-0.5 my-0.5 cursor-pointer ";
+    // On a Word page the review marks never move the text: no padding or margins.
+    let spanClasses = fid ? "inline cursor-pointer " : "transition-all duration-150 inline relative rounded-xs px-0.5 my-0.5 cursor-pointer ";
 
     if (isSelected) {
       spanClasses += " sentence-selected ";
@@ -644,6 +669,350 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       return same ? prev : next;
     });
   }, [pages, editing, fontFamily, paperTheme]);
+
+  /* ================================================================== */
+  /* Pages drawn from a Word file                                        */
+  /* ================================================================== */
+
+  type Piece = { p: DocumentParagraphNode; idx: number; from: number; to: number | null };
+  type DxPage = { pageNumber: number; section: number; items: Piece[]; notes: { id: string; html: string }[] };
+
+  const [dxMeasure, setDxMeasure] = useState<Record<string, BlockMeasure>>({});
+  const [fit, setFit] = useState(1);
+  const sections = layout?.sections ?? [];
+  const secOf = (p: DocumentParagraphNode) => Math.min(Math.max(0, p.section ?? 0), Math.max(0, sections.length - 1));
+  const geom = (s: number) => {
+    const sec = sections[s] ?? sections[0];
+    const W = (sec?.widthPt ?? 612) * PX_PER_PT;
+    const H = (sec?.heightPt ?? 792) * PX_PER_PT;
+    const mt = (sec?.marginTopPt ?? 72) * PX_PER_PT;
+    const mb = (sec?.marginBottomPt ?? 72) * PX_PER_PT;
+    const ml = (sec?.marginLeftPt ?? 72) * PX_PER_PT;
+    const mr = (sec?.marginRightPt ?? 72) * PX_PER_PT;
+    return { sec, W, H, mt, mb, ml, mr, C: H - mt - mb };
+  };
+  const marginsOf = (p: DocumentParagraphNode) => ({ mt: cssPx(p.blockStyle?.marginTop), mb: cssPx(p.blockStyle?.marginBottom) });
+  const splittableTypes = ["paragraph", "list_item", "blockquote", "heading"];
+
+  // Lay the blocks onto pages. A paragraph that does not fit is cut between two lines, as Word does.
+  const dxPages = React.useMemo<DxPage[]>(() => {
+    if (!fid) return [];
+    const out: DxPage[] = [];
+    let cur: Piece[] = [];
+    let notes: { id: string; html: string }[] = [];
+    let used = 0;
+    let curSec = paragraphs.length ? secOf(paragraphs[0]) : 0;
+    const flush = () => {
+      out.push({ pageNumber: out.length + 1, section: curSec, items: cur, notes });
+      cur = [];
+      notes = [];
+      used = 0;
+    };
+    const estimate = (p: DocumentParagraphNode): BlockMeasure => {
+      if (p.type === "image") return { h: (p.imageHeightPt ?? 100) * PX_PER_PT, cuts: [] };
+      if (p.type === "table") return { h: (p.tableData?.length ?? 1) * 26, cuts: [] };
+      const words = p.sentences.reduce((n, s) => n + s.text.split(/\s+/).length, 0);
+      return { h: Math.max(20, Math.ceil(words / 12) * 22), cuts: [] };
+    };
+    const noteHeight = (p: DocumentParagraphNode) =>
+      (p.footnotes ?? []).reduce((n, f) => n + (dxMeasure[`fn:${f.id}`]?.h ?? 18), 0);
+
+    paragraphs.forEach((p, idx) => {
+      const s = secOf(p);
+      if (cur.length > 0 && (s !== curSec || p.pageBreakBefore)) flush();
+      curSec = s;
+      const C = geom(s).C;
+      const m = dxMeasure[p.id] ?? estimate(p);
+      const { mt, mb } = marginsOf(p);
+      const fnH = noteHeight(p) + (p.footnotes?.length && notes.length === 0 ? 14 : 0);
+      const next = paragraphs[idx + 1];
+      // A heading (or a paragraph set to keep with the next) brings at least the next line along.
+      const keep = p.type === "heading" && next && secOf(next) === s && !next.pageBreakBefore
+        ? marginsOf(next).mt + ((dxMeasure[next.id]?.cuts[0] ?? Math.min(dxMeasure[next.id]?.h ?? 24, 60)))
+        : 0;
+      let from = 0;
+      for (let guard = 0; guard < 200; guard++) {
+        const top = from === 0 ? mt : 0;
+        const need = top + (m.h - from) + mb + (from === 0 ? fnH : 0);
+        if (used + need + (from === 0 ? keep : 0) <= C) {
+          cur.push({ p, idx, from, to: null });
+          if (from === 0 && p.footnotes) notes.push(...p.footnotes);
+          used += need;
+          return;
+        }
+        // Try to end this page between two lines of the block.
+        const avail = C - used - top - (from === 0 ? fnH : 0);
+        const canSplit = splittableTypes.includes(p.type) && m.cuts.length > 0 && editing?.id !== p.id;
+        const fitting = canSplit ? m.cuts.filter((c) => c > from + 1 && c - from <= avail) : [];
+        if (fitting.length > 0) {
+          const cut = Math.max(...fitting);
+          cur.push({ p, idx, from, to: cut });
+          if (from === 0 && p.footnotes) notes.push(...p.footnotes);
+          used += top + (cut - from);
+          flush();
+          from = cut;
+          continue;
+        }
+        if (cur.length === 0) {
+          // Taller than a whole page and cannot be cut: let it run over rather than loop.
+          cur.push({ p, idx, from, to: null });
+          if (from === 0 && p.footnotes) notes.push(...p.footnotes);
+          used += need;
+          return;
+        }
+        flush();
+      }
+    });
+    if (cur.length > 0 || out.length === 0) flush();
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fid, paragraphs, dxMeasure, layout, editing?.id]);
+
+  // Fit the page to narrow windows instead of scrolling sideways.
+  useEffect(() => {
+    if (!fid) return;
+    const box = scrollRef.current;
+    if (!box) return;
+    const update = () => {
+      const widest = Math.max(...sections.map((s) => s.widthPt * PX_PER_PT), 400);
+      setFit(Math.min(1, Math.max(0.3, (box.clientWidth - 32) / widest)));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(box);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fid, layout]);
+
+  // After drawing: put tabs on their stops, then measure every block so the page breaks fall where they should.
+  React.useLayoutEffect(() => {
+    if (!fid) return;
+    const root = scrollRef.current;
+    if (!root || editing) return;
+    layoutTabs(root, layout?.defaultTabPt ?? 36);
+    const next: Record<string, BlockMeasure> = {};
+    root.querySelectorAll<HTMLElement>("[data-dx]").forEach((el) => {
+      const id = el.dataset.dx!;
+      if (next[id]) return;
+      next[id] = measureBlock(el, el.dataset.split === "1");
+    });
+    root.querySelectorAll<HTMLElement>("[data-fn-measure]").forEach((el) => {
+      next[`fn:${el.dataset.fnMeasure}`] = { h: el.offsetHeight, cuts: [] };
+    });
+    setDxMeasure((prev) => {
+      const keys = Object.keys(next);
+      const same =
+        keys.length === Object.keys(prev).length &&
+        keys.every((k) => prev[k] && Math.abs(prev[k].h - next[k].h) < 1 && prev[k].cuts.length === next[k].cuts.length);
+      return same ? prev : next;
+    });
+  });
+
+  const fillFields = (html: string, page: number, total: number) =>
+    html.replace(/<span data-field="PAGE"><\/span>/g, String(page)).replace(/<span data-field="NUMPAGES"><\/span>/g, String(total));
+
+  const withEquations = (html: string) => (hasEquation(html) ? html.replace(TOKEN_REGEX(), (_m, id: string) => equationHtml(id)) : html);
+
+  /** Hover buttons for a block that is not text (table or picture). They float, so they never move the page. */
+  const blockTools = (p: DocumentParagraphNode, idx: number, label: string) => (
+    <div className="absolute -top-6 right-0 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity select-none z-10 font-sans">
+      <button type="button" onClick={() => onNodeMove(p.id, "up")} disabled={idx === 0} className="text-[11px] px-2 py-0.5 rounded-lg bg-white/95 border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40" aria-label={`Move ${label} up`}>Up</button>
+      <button type="button" onClick={() => onNodeMove(p.id, "down")} disabled={idx >= paragraphs.length - 1} className="text-[11px] px-2 py-0.5 rounded-lg bg-white/95 border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40" aria-label={`Move ${label} down`}>Down</button>
+      <button type="button" onClick={() => onNodeDelete(p.id)} className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-white/95 border border-rose-200 text-rose-600 hover:bg-rose-50" aria-label={`Remove ${label}`}>Remove</button>
+    </div>
+  );
+
+  /** One block of a Word page. `copy` is the continuation of a paragraph cut by a page break. */
+  const renderDxBlock = (p: DocumentParagraphNode, idx: number, copy: boolean, zeroMargins: boolean): React.ReactNode => {
+    const style: React.CSSProperties = { ...(p.blockStyle as React.CSSProperties) };
+    if (zeroMargins) {
+      style.marginTop = 0;
+      style.marginBottom = 0;
+    }
+    const measureAttrs = copy ? {} : { "data-dx": p.id, "data-split": splittableTypes.includes(p.type) ? "1" : "0" };
+
+    if (p.type === "image") {
+      // A picture added in the editor has no Word size yet: it takes its share of the text width.
+      const size: React.CSSProperties = p.imageWidthPt
+        ? { width: `${p.imageWidthPt}pt`, height: `${p.imageHeightPt ?? 150}pt` }
+        : { width: `${p.widthPercent ?? 75}%`, height: "auto" };
+      return (
+        <div key={p.id} {...measureAttrs} data-node={p.id} className="dx-block relative group" style={{ ...style, margin: style.margin ?? undefined, textAlign: p.alignment === "justify" || !p.alignment ? (p.imageWidthPt ? "left" : "center") : p.alignment }}>
+          {!copy && blockTools(p, idx, "picture")}
+          {p.imageHtml ? (
+            <span dangerouslySetInnerHTML={{ __html: p.imageHtml }} />
+          ) : p.imageUrl && !p.imageUnsupported ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={p.imageUrl} alt={p.imageCaption ?? ""} style={{ ...size, maxWidth: "100%", display: "inline-block", verticalAlign: "bottom" }} />
+          ) : (
+            <span className="dx-unsupported" style={{ width: `${p.imageWidthPt ?? 200}pt`, height: `${p.imageHeightPt ?? 150}pt`, display: "inline-flex" }}>
+              {p.imageUnsupported ?? "Picture"} (kept in your Word file)
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    if (p.type === "table" && p.table) {
+      const model = p.table;
+      return (
+        <div key={p.id} {...measureAttrs} data-node={p.id} className="dx-block relative group" style={style}>
+          {!copy && blockTools(p, idx, "table")}
+          <table className="dx-table" style={model.style as React.CSSProperties}>
+            {model.colWidthsPt.length > 0 && (
+              <colgroup>
+                {model.colWidthsPt.map((w, i) => (
+                  <col key={i} style={{ width: `${w}pt` }} />
+                ))}
+              </colgroup>
+            )}
+            <tbody>
+              {model.rows.map((row, r) => (
+                <tr key={r} style={row.heightPt ? { height: `${row.heightPt}pt` } : undefined}>
+                  {row.cells.map((cell, c) => {
+                    const current = p.tableData?.[r]?.[c] ?? cell.text;
+                    const edited = current !== cell.text;
+                    const html = edited
+                      ? `<div class="dx-p" style="${Object.entries(cell.firstBlockStyle ?? {})
+                          .map(([k, v]) => `${k.replace(/[A-Z]/g, (x) => `-${x.toLowerCase()}`)}:${v}`)
+                          .join(";")}">${escapeHtml(current) || "<br>"}</div>`
+                      : cell.html;
+                    return (
+                      <td
+                        key={`${c}-${edited ? "e" : "o"}`}
+                        colSpan={cell.colSpan}
+                        rowSpan={cell.rowSpan}
+                        style={cell.style as React.CSSProperties}
+                        contentEditable={!copy && !hasEquation(current)}
+                        suppressContentEditableWarning
+                        onBlur={(e) => {
+                          const text = (e.currentTarget.textContent || "").replace(/\s+/g, " ").trim();
+                          if (text !== current) onTableCellEdit(p.id, r, c, text);
+                        }}
+                        className="outline-none focus:bg-elite-500/10"
+                        dangerouslySetInnerHTML={{ __html: withEquations(html) }}
+                      />
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    // A table added in the editor: plain grid, one line per cell, styled like a simple Word table.
+    if (p.type === "table") {
+      return (
+        <div key={p.id} {...measureAttrs} data-node={p.id} className="dx-block relative group" style={{ ...style, marginTop: style.marginTop ?? "6pt", marginBottom: style.marginBottom ?? "6pt" }}>
+          {!copy && blockTools(p, idx, "table")}
+          <table className="dx-table" style={{ width: "100%", tableLayout: "fixed" }}>
+            <tbody>
+              {(p.tableData ?? []).map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td
+                      key={c}
+                      contentEditable={!copy}
+                      suppressContentEditableWarning
+                      onBlur={(e) => {
+                        const text = (e.currentTarget.textContent || "").replace(/\s+/g, " ").trim();
+                        if (text !== cell) onTableCellEdit(p.id, r, c, text);
+                      }}
+                      className="outline-none focus:bg-elite-500/10"
+                      style={{ border: "0.5pt solid #000", padding: "0 5.4pt", verticalAlign: "top", lineHeight: 1.15 }}
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    // Text blocks: paragraphs, headings, list items, quotations and empty lines.
+    const textAlign = p.alignment ?? "left";
+    const heading = p.type === "heading" ? { role: "heading", "aria-level": p.level ?? 1 } : {};
+    return (
+      <div
+        key={p.id}
+        {...measureAttrs}
+        {...heading}
+        data-tabs={p.tabStops ? JSON.stringify(p.tabStops) : undefined}
+        className="dx-block"
+        style={{ ...style, textAlign }}
+      >
+        {p.listMarkerHtml && <span dangerouslySetInnerHTML={{ __html: p.listMarkerHtml }} />}
+        {p.isEmptyLine || p.sentences.length === 0 ? <br /> : renderParagraphBody(p, !copy)}
+      </div>
+    );
+  };
+
+  const renderDxPages = () =>
+    dxPages.map((page) => {
+      const g = geom(page.section);
+      const sec = g.sec;
+      const firstOfSection = dxPages.find((x) => x.section === page.section)?.pageNumber === page.pageNumber;
+      const header = sec ? (sec.titlePg && firstOfSection ? sec.firstHeader : sec.header) : undefined;
+      const footer = sec ? (sec.titlePg && firstOfSection ? sec.firstFooter : sec.footer) : undefined;
+      const total = dxPages.length;
+      return (
+        <article
+          key={page.pageNumber}
+          data-page={page.pageNumber}
+          className={`word-a4-page dx-page ${paperTheme === "dark" ? "word-a4-page-dark" : ""} shrink-0 mx-auto`}
+          style={{
+            width: g.W,
+            maxWidth: "none",
+            minHeight: g.H,
+            padding: `${g.mt}px ${g.mr}px ${g.mb}px ${g.ml}px`,
+            fontFamily: layout?.defaultFont,
+            fontSize: `${layout?.defaultSizePt ?? 12}pt`,
+            lineHeight: "normal",
+            zoom: (zoom / 100) * fit,
+          }}
+        >
+          {header && (
+            <div className="dx-hf" style={{ top: (sec?.headerPt ?? 36) * PX_PER_PT, paddingLeft: g.ml, paddingRight: g.mr }}>
+              <div className="dx-hf-inner" dangerouslySetInnerHTML={{ __html: fillFields(header, page.pageNumber, total) }} />
+            </div>
+          )}
+          <div className="dx-flow" data-holder style={{ minHeight: g.C }}>
+            {page.items.map(({ p, idx, from, to }) => {
+              const clipped = from > 0 || to !== null;
+              const editingHere = editing?.id === p.id;
+              if (!clipped || (editingHere && from === 0)) return renderDxBlock(p, idx, false, false);
+              if (editingHere) return null;
+              const m = dxMeasure[p.id];
+              const { mt, mb } = marginsOf(p);
+              const height = (to ?? m?.h ?? 0) - from;
+              return (
+                <div key={`${p.id}@${from}`} style={{ overflow: "hidden", height, marginTop: from === 0 ? mt : 0, marginBottom: to === null ? mb : 0 }}>
+                  <div style={{ marginTop: -from }}>{renderDxBlock(p, idx, from > 0, true)}</div>
+                </div>
+              );
+            })}
+          </div>
+          {page.notes.length > 0 && (
+            <div className="absolute" style={{ left: g.ml, right: g.mr, bottom: g.mb }}>
+              <div className="dx-footnotes" />
+              {page.notes.map((n) => (
+                <div key={n.id} data-fn-measure={n.id} className="dx-footnotes-body" dangerouslySetInnerHTML={{ __html: n.html }} />
+              ))}
+            </div>
+          )}
+          {footer && (
+            <div className="dx-hf" style={{ bottom: (sec?.footerPt ?? 36) * PX_PER_PT, paddingLeft: g.ml, paddingRight: g.mr }}>
+              <div className="dx-hf-inner" dangerouslySetInnerHTML={{ __html: fillFields(footer, page.pageNumber, total) }} />
+            </div>
+          )}
+        </article>
+      );
+    });
 
   return (
     <div
@@ -1013,7 +1382,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         onScroll={updateCurrentPage}
         className="flex-1 overflow-y-auto py-8 px-3 sm:px-6 lg:px-8 xl:px-10 flex flex-col items-center xl:items-start 2xl:items-center gap-8"
       >
-        {pages.map((page) => (
+        {fid && isLoading && paragraphs.length === 0 && <div aria-busy="true" className="ai-pending h-40 w-full max-w-2xl" />}
+        {fid ? renderDxPages() : pages.map((page) => (
           <article
             key={page.pageNumber}
             data-page={page.pageNumber}
@@ -1022,6 +1392,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             } leading-relaxed text-[16px] flex flex-col shrink-0 mx-auto xl:mx-0 2xl:mx-auto`}
             style={{
               fontFamily: fontFamily,
+              fontSize: ({ "2": "13.33px", "3": "16px", "4": "18.67px", "5": "24px" } as Record<string, string>)[fontSize] ?? "16px",
               zoom: zoom / 100,
             }}
           >
@@ -1239,7 +1610,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         {/* Multi-page Canvas Footer Action: Add New Page */}
         <div className="py-4 select-none">
           <div className="text-xs text-slate-400 text-center font-mono">
-            Manuscript Canvas • {pages.length} Pages • {(wordCount || 0).toLocaleString()} Words
+            {fid ? dxPages.length : pages.length} {(fid ? dxPages.length : pages.length) === 1 ? "page" : "pages"} • {(wordCount || 0).toLocaleString()} words
           </div>
         </div>
       </div>
@@ -1252,7 +1623,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         canUndo={historyUndoLength > 0}
         canRedo={historyRedoLength > 0}
         wordCount={wordCount}
-        pageCount={pages.length}
+        pageCount={fid ? dxPages.length : pages.length}
         currentPage={currentPage}
         zoomLevel={zoom}
         onZoomChange={setZoom}

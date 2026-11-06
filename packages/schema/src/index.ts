@@ -51,8 +51,86 @@ export interface DocumentMeta {
   dialect?: DocumentDialect;
   writingMode?: WritingMode;
   citationStyle?: CitationStyle;
+  /** Page setup read from an uploaded Word file. Present only for documents that came from .docx. */
+  layout?: DocxLayout;
   createdAt: string;
   updatedAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Word fidelity: what an uploaded .docx looked like                    */
+/* ------------------------------------------------------------------ */
+
+/** CSS for one block, written by the Word importer (React style keys, values with units). */
+export type BlockStyle = Record<string, string | number>;
+
+/** One section of a Word file: page size, margins, and its headers and footers as HTML. */
+export interface DocxSection {
+  widthPt: number;
+  heightPt: number;
+  marginTopPt: number;
+  marginRightPt: number;
+  marginBottomPt: number;
+  marginLeftPt: number;
+  headerPt: number;
+  footerPt: number;
+  /** The first page has its own header and footer. */
+  titlePg?: boolean;
+  header?: string;
+  footer?: string;
+  firstHeader?: string;
+  firstFooter?: string;
+}
+
+export interface DocxLayout {
+  sections: DocxSection[];
+  /** Word's default tab stop interval. */
+  defaultTabPt: number;
+  /** CSS font stack and size of the document's default text. */
+  defaultFont: string;
+  defaultSizePt: number;
+}
+
+export interface DocxTabStop {
+  /** Position from the left edge of the text column. */
+  pos: number;
+  align: 'left' | 'center' | 'right' | 'decimal';
+  leader?: 'dot' | 'hyphen' | 'underscore' | 'middleDot';
+}
+
+export interface DocxTableCell {
+  html: string;
+  /** Text of the cell when it was imported, to tell whether it has been edited since. */
+  text: string;
+  style: BlockStyle;
+  /** Style of the cell's first paragraph, used to draw an edited cell. */
+  firstBlockStyle?: BlockStyle;
+  colSpan?: number;
+  rowSpan?: number;
+}
+
+export interface DocxTableModel {
+  style: BlockStyle;
+  colWidthsPt: number[];
+  rows: { heightPt?: number; exactHeight?: boolean; cells: DocxTableCell[] }[];
+}
+
+/** Where a block came from in the original file, so an export can leave it untouched. */
+export interface DocxSourceRef {
+  /** Element indices from <w:body> down to the block. */
+  path: number[];
+  /** Fingerprint of the content when imported. */
+  sig: string;
+  /** Alignment when imported. */
+  align?: string;
+  /** A paragraph cut by a page break is several nodes: which piece, and how many. */
+  part?: number;
+  parts?: number;
+  /** A new paragraph styled like this source block (for example after pressing Enter). */
+  clone?: boolean;
+  /** The source paragraph started, or ended, with a page break that is not drawn as a line. */
+  leadBreak?: boolean;
+  trailBreak?: boolean;
 }
 
 export type ScoreBand = 'likely_human' | 'uncertain' | 'likely_machine';
@@ -156,6 +234,24 @@ export interface DocumentParagraphNode {
   pageBreakBefore?: boolean;
   sentences: DocumentSentence[];
   orderNo: number;
+  /* Word fidelity (set only for blocks imported from .docx) */
+  /** Exact look of the block: spacing, indents, line height, fonts. */
+  blockStyle?: BlockStyle;
+  /** Numbering text drawn before a list item, such as "1." or "(a)", as HTML. */
+  listMarkerHtml?: string;
+  tabStops?: DocxTabStop[];
+  /** Index into DocumentMeta.layout.sections. */
+  section?: number;
+  imageWidthPt?: number;
+  imageHeightPt?: number;
+  /** A picture the browser cannot draw (for example EMF); shown as a placeholder of the same size. */
+  imageUnsupported?: string;
+  /** A text box, chart or SmartArt from a Word file, drawn as HTML/SVG at its Word size. */
+  imageHtml?: string;
+  table?: DocxTableModel;
+  /** Footnotes referenced from this block, drawn at the foot of the page. */
+  footnotes?: { id: string; html: string }[];
+  docx?: DocxSourceRef;
 }
 
 export type SourcePool = 'open_scholarly' | 'web_index' | 'edux_repository' | 'licensed';

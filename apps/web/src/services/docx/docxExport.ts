@@ -18,6 +18,7 @@ import { saveAs } from "file-saver";
 import { DocumentParagraphNode, DocumentSentence } from "@edux/schema";
 import { EquationMap, tokensOf } from "../../lib/equations";
 import { restoreEquations } from "./equations";
+import { patchDocx } from "./docxPatch";
 import { Fmt, parseRuns } from "../../lib/formatting";
 
 export interface DocxExportOptions {
@@ -334,9 +335,17 @@ export async function exportDocumentToDocx(
 export async function downloadDocxFile(
   title: string,
   paragraphs: DocumentParagraphNode[],
-  options: DocxExportOptions = {}
+  options: DocxExportOptions & { source?: ArrayBuffer | null } = {}
 ): Promise<void> {
-  const blob = await exportDocumentToDocx(title, paragraphs, options);
+  // A document uploaded from Word is exported by changing that file, so everything not edited stays exactly as it was.
+  const blob =
+    options.source && paragraphs.some((p) => p.docx)
+      ? await patchDocx(options.source, paragraphs, {
+          exportMode: options.exportMode ?? "clean",
+          author: options.author ?? "eduX",
+          equations: options.equations ?? {},
+        })
+      : await exportDocumentToDocx(title, paragraphs, options);
   const cleanTitle = title.replace(/\.(docx|txt|md)$/i, "") + ".docx";
 
   try {

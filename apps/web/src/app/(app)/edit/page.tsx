@@ -21,11 +21,11 @@ import { FidelityReportModal } from "../../../components/editor/FidelityReportMo
 import { DocumentPickerModal } from "../../../components/editor/DocumentPickerModal";
 import { InsertImageModal } from "../../../components/editor/InsertImageModal";
 import { InsertTableModal } from "../../../components/editor/InsertTableModal";
-import { getActiveDocument, setActiveDocument } from "../../../services/storage/documentStore";
+import { getActiveDocument, getStoredDocument, setActiveDocument } from "../../../services/storage/documentStore";
 import { useScan } from "../../../hooks/useScan";
 import { useSession } from "../../../hooks/useSession";
 import { useConfirm, useToast } from "../../../components/ui/feedback";
-import { sanitizeHtml } from "../../../lib/formatting";
+import { splitHtmlAt, splitHtmlBySentence } from "../../../lib/formatting";
 import type { DocumentDialect, WritingMode, CitationStyle } from "@edux/schema";
 import { convertSpelling, findSpellingIssues, dialectLabel, detectDialect } from "../../../lib/dialect";
 import { EquationMap, keepsEquations } from "../../../lib/equations";
@@ -193,6 +193,16 @@ export default function WordEditorPage() {
         const wanted = new URLSearchParams(window.location.search).get("doc");
         if (wanted && !(activeStored && activeStored.meta?.id === wanted)) {
           const target = libraryDocs.find((d) => d.id === wanted);
+          const local = await getStoredDocument(wanted);
+          if (local) {
+            setDocumentMeta(local.meta);
+            setParagraphs(local.paragraphs);
+            setEquations(local.equations ?? {});
+            setAllDocuments(libraryDocs.some((d) => d.id === wanted) ? libraryDocs : [local.meta, ...libraryDocs]);
+            setSuggestionsMap({});
+            if (needsScan(local.meta, local.paragraphs)) setScanDocId(local.meta.id);
+            return;
+          }
           if (target) {
             try {
               const struct = await apiClient.getDocumentStructure(wanted);
@@ -392,8 +402,9 @@ export default function WordEditorPage() {
       setSuggestionsError(null);
       setUndoStack([]);
       setRedoStack([]);
-      const activeStored = await getActiveDocument();
-      if (activeStored && activeStored.meta?.id === targetDoc.id && activeStored.paragraphs) {
+      // A document kept on this device opens with all its formatting; the server only has its text.
+      const activeStored = await getStoredDocument(targetDoc.id);
+      if (activeStored && activeStored.paragraphs) {
         setDocumentMeta(activeStored.meta);
         setParagraphs(activeStored.paragraphs);
         setEquations(activeStored.equations ?? {});
@@ -769,7 +780,10 @@ export default function WordEditorPage() {
         : -1;
       const index = at >= 0 ? at + 1 : prev.length;
       const next = [...prev];
-      next.splice(index, 0, { ...node, documentId: docId, orderNo: index + 1 });
+      // On a Word page, a new block belongs to the section of the block before it.
+      const before = prev[index - 1];
+      const section = before?.section !== undefined ? { section: before.section } : {};
+      next.splice(index, 0, { ...node, ...section, documentId: docId, orderNo: index + 1 });
       return next.map((p, i) => ({ ...p, orderNo: i + 1 }));
     });
   };
@@ -901,21 +915,39 @@ export default function WordEditorPage() {
   const selectedNode = selectedSentence
     ? paragraphs.find((p) => p.sentences.some((s) => s.id === selectedSentence.id))
     : undefined;
-  const canAlign = !!selectedNode && !["image", "table"].includes(selectedNode.type);
+  // Alignment works on the paragraph that was clicked, or on every paragraph a dragged selection touches.
+  const canAlign = true;
+
+  const alignTargets = (): DocumentParagraphNode[] => {
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+      const range = sel.getRangeAt(0);
+      const ids = new Set(
+        Array.from(document.querySelectorAll<HTMLElement>("[data-pid]"))
+          .filter((el) => range.intersectsNode(el))
+          .map((el) => el.dataset.pid!)
+      );
+      const hits = paragraphsRef.current.filter((p) => ids.has(p.id));
+      if (hits.length) return hits;
+    }
+    return selectedNode && !["image", "table"].includes(selectedNode.type) ? [selectedNode] : [];
+  };
 
   const handleAlign = (align: Align) => {
-    if (!selectedNode) {
-      toast.show("Click a paragraph first, then choose how to align it.", { kind: "info" });
+    const targets = alignTargets();
+    if (targets.length === 0) {
+      toast.show("Click in a paragraph, or select some text, then choose how to align it.", { kind: "info" });
       return;
     }
-    const before = selectedNode.alignment;
-    setParagraphs((prev) => prev.map((p) => (p.id === selectedNode.id ? { ...p, alignment: align } : p)));
-    toast.show(`Paragraph ${align === "justify" ? "justified" : align === "center" ? "centred" : `aligned ${align}`}.`, {
+    const before = new Map(targets.map((p) => [p.id, p.alignment]));
+    setParagraphs((prev) => prev.map((p) => (before.has(p.id) ? { ...p, alignment: align } : p)));
+    const what = targets.length === 1 ? "Paragraph" : `${targets.length} paragraphs`;
+    toast.show(`${what} ${align === "justify" ? "justified" : align === "center" ? "centred" : `aligned ${align}`}.`, {
       kind: "success",
       ms: 5000,
       action: {
         label: "Undo",
-        onClick: () => setParagraphs((prev) => prev.map((p) => (p.id === selectedNode.id ? { ...p, alignment: before } : p))),
+        onClick: () => setParagraphs((prev) => prev.map((p) => (before.has(p.id) ? { ...p, alignment: before.get(p.id) } : p))),
       },
     });
   };
@@ -1021,8 +1053,9 @@ export default function WordEditorPage() {
     }
 
     const texts = splitSentenceTexts(clean);
-    const single = texts.length === 1 && hasFormatting(html) ? sanitizeHtml(clean, html.trim()) : undefined;
-    const result = reconcile(node.sentences, texts, node.id, idx, () => newSentenceId(node.id), single);
+    // Every sentence keeps its own formatting, however many the paragraph has.
+    const htmls = hasFormatting(html) ? splitHtmlBySentence(text, html, texts) : texts.map(() => undefined);
+    const result = reconcile(node.sentences, texts, node.id, idx, () => newSentenceId(node.id), undefined, htmls);
     if (!result.dirty) return;
 
     const next = nodes.map((p) => (p.id === pId ? { ...p, sentences: result.sentences } : p));
@@ -1031,7 +1064,7 @@ export default function WordEditorPage() {
     void saveEdits([pId], [], next, result.changedIds);
   };
 
-  const splitParagraph = (pId: string, text: string, _html: string, offset: number) => {
+  const splitParagraph = (pId: string, text: string, html: string, offset: number) => {
     const nodes = paragraphsRef.current;
     const idx = nodes.findIndex((p) => p.id === pId);
     if (idx < 0) return;
@@ -1041,11 +1074,13 @@ export default function WordEditorPage() {
     if (!before.trim()) return; // Enter at the very start does nothing
 
     const firstTexts = splitSentenceTexts(before);
-    const first = reconcile(node.sentences, firstTexts, node.id, idx, () => newSentenceId(node.id));
+    const secondTexts = splitSentenceTexts(after);
+    const cut = hasFormatting(html) ? splitHtmlAt(text, html, offset, firstTexts, secondTexts) : null;
+    const first = reconcile(node.sentences, firstTexts, node.id, idx, () => newSentenceId(node.id), undefined, cut?.first);
     const newNodeId = `${node.id}_p${Date.now().toString(36)}`;
     // Sentences that moved down into the new paragraph keep their identity, score and history.
     const moved = node.sentences.filter((x) => first.removedIds.includes(x.id));
-    const second = reconcile(moved, splitSentenceTexts(after), newNodeId, idx + 1, () => newSentenceId(newNodeId));
+    const second = reconcile(moved, secondTexts, newNodeId, idx + 1, () => newSentenceId(newNodeId), undefined, cut?.second);
 
     const midWord = /\S/.test(text[offset - 1] ?? "") && /\S/.test(text[offset] ?? "");
     const created: DocumentParagraphNode = {
@@ -1057,6 +1092,17 @@ export default function WordEditorPage() {
       listType: node.listType,
       level: node.type === "list_item" ? node.level : undefined,
       alignment: node.type === "heading" ? undefined : node.alignment,
+      // A paragraph made by Enter looks like the one it came from, and is written into Word the same way.
+      ...(node.blockStyle && node.type !== "heading"
+        ? {
+            blockStyle: { ...node.blockStyle, marginTop: node.blockStyle.marginTop },
+            tabStops: node.tabStops,
+            section: node.section,
+            docx: node.docx ? { path: node.docx.path, sig: "", clone: true } : undefined,
+          }
+        : node.blockStyle
+        ? { section: node.section }
+        : {}),
       sentences: second.sentences,
       orderNo: idx + 2,
     };
@@ -1243,6 +1289,7 @@ export default function WordEditorPage() {
         canAlign={canAlign}
         onAlign={handleAlign}
         onJustifyAll={handleJustifyAll}
+        isWordDocument={!!documentMeta?.layout}
       />
 
       {!focusMode && spellingIssues > 0 && (
@@ -1303,12 +1350,13 @@ export default function WordEditorPage() {
           isLoading={isLoadingDoc}
           equationLatex={equationLatex}
           equations={equations}
+          layout={documentMeta?.layout}
           onCommitParagraph={commitParagraph}
           onSplitParagraph={splitParagraph}
           onMergeParagraph={mergeParagraph}
           editRequest={editRequest}
           lang={docDialect}
-          onUnsupportedEdit={(what) => toast.show(`${what} is not available while typing yet. Alignment and rewrites work as usual.`)}
+          onUnsupportedEdit={(what) => toast.show(what)}
           rescoring={rescoring}
           hideStatusHeader
           scanBanner={
@@ -1354,7 +1402,26 @@ export default function WordEditorPage() {
         initialLatex={equationLatex}
         onSaveEquation={(newLatex) => {
           setEquationLatex(newLatex);
-          showNotice("Formula saved.");
+          if (!documentMeta || documentMeta.id === "doc_84719a" || documentMeta.id === "doc_101") {
+            showNotice("Formula saved.");
+            return;
+          }
+          // In your own document the formula is added as its own line after the selected paragraph.
+          const eqId = `u${Date.now().toString(36)}`;
+          setEquations((prev) => ({ ...prev, [eqId]: { latex: newLatex, display: true, omml: "" } }));
+          const nodeId = `${documentMeta.id}_eq_${eqId}`;
+          const near = selectedNode ?? paragraphsRef.current.filter((p) => p.type === "paragraph" && p.blockStyle).slice(-1)[0];
+          insertNode({
+            id: nodeId,
+            type: "paragraph",
+            styleName: "Equation",
+            alignment: "center",
+            ...(near?.blockStyle ? { blockStyle: { ...near.blockStyle, textIndent: "0pt" } } : {}),
+            sentences: [
+              { id: `${nodeId}_s1`, nodeId, paragraphIndex: 0, text: `⟦EQ:${eqId}⟧`, charStart: 0, charEnd: 0, locked: false, ignored: true },
+            ],
+          });
+          showNotice("Formula added after the selected paragraph.");
         }}
       />
       <FidelityReportModal
@@ -1363,6 +1430,7 @@ export default function WordEditorPage() {
         documentTitle={documentMeta?.title || "Sample paper"}
         paragraphs={paragraphs}
         equations={equations}
+        documentId={documentMeta?.id}
         onExported={() => completeStep("exported")}
       />
       <DocumentPickerModal

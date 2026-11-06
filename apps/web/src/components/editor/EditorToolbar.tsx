@@ -167,11 +167,14 @@ interface Props {
   canAlign: boolean;
   onAlign: (a: Align) => void;
   onJustifyAll: () => void;
+  /** The document came from a Word file and keeps its own fonts and page layout. */
+  isWordDocument?: boolean;
 }
 
 export const EditorToolbar: React.FC<Props> = (p) => {
   return (
-    <div className="shrink-0 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur px-3 sm:px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+    // Its own layer above the page, so its menus open over the document instead of under it.
+    <div className="relative z-30 shrink-0 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur px-3 sm:px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
       {/* Document */}
       <div className="flex items-center gap-2 min-w-0 mr-1">
         <button
@@ -220,8 +223,8 @@ export const EditorToolbar: React.FC<Props> = (p) => {
 
           <div className="hidden md:block h-5 w-px bg-slate-200 dark:bg-slate-700" />
 
-          {/* Tools */}
-          <div className="flex items-center gap-1.5">
+          {/* Tools: wrap onto a second line on narrow screens rather than run off the edge. */}
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             <button onClick={p.onUndo} disabled={!p.canUndo} aria-label="Undo" title="Undo (Ctrl Z)" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200/70 dark:hover:bg-slate-800 disabled:opacity-30">
               <Undo2 className="w-4 h-4" />
             </button>
@@ -265,6 +268,12 @@ export const EditorToolbar: React.FC<Props> = (p) => {
             <Menu title="Page appearance" label={<><Type className="w-3.5 h-3.5" /> Page</>}>
               {(close) => (
                 <div className="p-1.5 space-y-3 w-60">
+                  {p.isWordDocument ? (
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                      This document keeps the fonts, sizes and page layout from your Word file. Select text to change its font or size.
+                    </p>
+                  ) : (
+                  <>
                   <div>
                     <label htmlFor="tb-font" className="block text-[11px] font-semibold text-slate-500 mb-1">Font</label>
                     <select id="tb-font" value={p.fontFamily} onChange={(e) => p.onFontFamily(e.target.value)} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1.5 text-sm">
@@ -277,6 +286,8 @@ export const EditorToolbar: React.FC<Props> = (p) => {
                       {SIZES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                   </div>
+                  </>
+                  )}
                   <button onClick={() => { close(); p.onJustifyAll(); }} className="w-full rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800">
                     Justify all body text
                   </button>

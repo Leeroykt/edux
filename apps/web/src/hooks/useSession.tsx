@@ -114,6 +114,14 @@ export const SessionProvider: React.FC<{
   useEffect(() => {
     let live = true;
     (async () => {
+      // Back from "Sign in with Google": the server left the session in a cookie, so pick it up.
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("signed_in") === "google") {
+        await apiClient.resumeSession();
+        params.delete("signed_in");
+        const rest = params.toString();
+        window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`);
+      }
       const cached = apiClient.getCurrentUser();
       if (cached && live) setUser(cached);
       if (apiClient.getToken()) {

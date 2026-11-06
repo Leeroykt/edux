@@ -70,10 +70,12 @@ const config: Config = {
       },
       fontFamily: {
         // UI text
-        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        sans: ["Raleway", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         // Writing surface and editorial headings
-        serif: ["Newsreader", "Georgia", "Cambria", "Times New Roman", "serif"],
-        raleway: ["Newsreader", "Georgia", "serif"],
+        // Headings use Raleway too; documents keep their own fonts, set inline on the page.
+        serif: ["Raleway", "-apple-system", "Segoe UI", "sans-serif"],
+        paper: ["Newsreader", "Georgia", "Cambria", "Times New Roman", "serif"],
+        raleway: ["Raleway", "sans-serif"],
         mono: ["JetBrains Mono", "Menlo", "Courier New", "monospace"],
       },
       boxShadow: {

@@ -15,14 +15,15 @@
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-variant-numeric: lining-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Editorial serif for page titles and brand; Inter stays for every control and label. */
+/* Raleway for the whole interface: titles, brand, controls and labels. */
 h1, h2, .brand-font, .font-raleway {
-  font-family: 'Newsreader', Georgia, serif;
+  font-family: 'Raleway', -apple-system, 'Segoe UI', sans-serif;
   letter-spacing: -0.015em;
 }
 
@@ -57,14 +58,47 @@ h1, h2, .brand-font, .font-raleway {
 }
 
 /* Ensure document editor text keeps its typeface when bolded (does NOT change font family) */
-.word-a4-page b,
-.word-a4-page strong,
-.word-a4-page [style*="font-weight: bold"],
-.word-a4-page [style*="font-weight: 700"],
-.word-a4-page .font-bold {
+.word-a4-page:not(.dx-page) b,
+.word-a4-page:not(.dx-page) strong,
+.word-a4-page:not(.dx-page) .font-bold {
   font-family: inherit !important;
   font-weight: 700 !important;
 }
+
+/* ---- Pages drawn from a Word file: the file decides every measurement ---- */
+.dx-page {
+  /* Word prints black on white. The sheet keeps that even when the app is dark. */
+  color: #000;
+  background-color: #fff;
+  border-radius: 0;
+  max-width: none;
+  box-sizing: border-box;
+  position: relative;
+  overflow: visible;
+  font-kerning: normal;
+  /* A border would take width from the text column; an outline shadow does not. */
+  border: 0 !important;
+  box-shadow: 0 0 0 1px rgba(203, 213, 225, 0.9), 0 14px 28px -6px rgba(0, 0, 0, 0.08);
+}
+.dx-page.word-a4-page-dark { color: #e8e6e1 !important; }
+.dx-page b, .dx-page strong { font-weight: 700; }
+.dx-flow { display: flex; flex-direction: column; }
+.dx-flow > * { flex-shrink: 0; }
+.dx-block { min-height: 0; overflow-wrap: break-word; }
+.dx-tab { display: inline-block; white-space: pre; text-indent: 0; line-height: 1; height: 1em; vertical-align: baseline; min-width: 0; tab-size: 0; }
+.dx-tab.dx-leader-dot { background-image: radial-gradient(circle, currentColor 0.55px, transparent 0.9px); background-size: 3.6pt 2px; background-repeat: repeat-x; background-position: 0 calc(100% - 0.28em); }
+.dx-tab.dx-leader-middleDot { background-image: radial-gradient(circle, currentColor 0.55px, transparent 0.9px); background-size: 3.6pt 2px; background-repeat: repeat-x; background-position: 0 55%; }
+.dx-tab.dx-leader-hyphen { background-image: linear-gradient(to right, currentColor 55%, transparent 55%); background-size: 4pt 1px; background-repeat: repeat-x; background-position: 0 60%; }
+.dx-tab.dx-leader-underscore { border-bottom: 1px solid currentColor; }
+.dx-table { border-collapse: collapse; }
+.dx-table td { overflow-wrap: break-word; }
+.dx-table td > .dx-p:last-child { margin-bottom: 0; }
+.dx-unsupported { align-items: center; justify-content: center; border: 1px dashed rgba(100, 116, 139, 0.6); background: rgba(100, 116, 139, 0.08); color: #64748b; font: 11px/1.3 system-ui, sans-serif; text-align: center; text-indent: 0; }
+.dx-hf { position: absolute; left: 0; right: 0; pointer-events: none; }
+.dx-footnotes { border-top: 0.5pt solid currentColor; width: 2in; padding-top: 2pt; }
+.dx-footnotes-body { width: auto; }
+[data-marker] { user-select: none; }
+.dx-page .sentence-selected, .dx-page .sentence-hover, .dx-page .ai-flagged-machine, .dx-page .ai-flagged-uncertain { padding: 0; margin: 0; }
 
 /* Custom scrollbars */
 ::-webkit-scrollbar {

@@ -109,6 +109,11 @@ export class EduxApiClient {
     }
   }
 
+  /** Takes over a session the server set as a cookie (after signing in with Google). */
+  async resumeSession(): Promise<boolean> {
+    return this.refreshAccessToken();
+  }
+
   private refreshing: Promise<boolean> | null = null;
 
   /** Renews the access token from the httpOnly refresh cookie. One attempt at a time. */
