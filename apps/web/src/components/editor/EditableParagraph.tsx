@@ -105,10 +105,10 @@ export const EditableParagraph: React.FC<Props> = (props) => {
       return;
     }
 
-    // Formatting would be lost when the sentence is re-read, so say so instead of pretending.
-    if ((e.ctrlKey || e.metaKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) {
+    // Bold, italic and underline go through the editor's own formatting, so they are saved and exported.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && ["b", "i", "u"].includes(e.key.toLowerCase())) {
       e.preventDefault();
-      latest.current.onUnsupported("Bold, italic and underline");
+      latest.current.onUnsupported(e.key.toLowerCase());
     }
   };
 

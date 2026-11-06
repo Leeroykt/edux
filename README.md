@@ -126,6 +126,12 @@ pnpm dev
 ```
 Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
+### Sign in with Google
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** of type **Web application**.
+2. Add the authorised redirect URI `http://localhost:3000/api/v1/auth/google/callback` (and `https://<your site>/api/v1/auth/google/callback` for production).
+3. Copy `apps/web/.env.example` to `apps/web/.env.local` and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and `APP_URL` in production).
+4. Restart `pnpm dev`. The sign-in box now offers **Continue with Google**. A Google account with the same email as an existing eduX account signs in to that account; otherwise a new one is created.
+
 ### Build for Production
 ```bash
 pnpm build

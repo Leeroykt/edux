@@ -176,10 +176,21 @@ export function readEditable(root: HTMLElement): { text: string; html: string } 
       return;
     }
     if (el.tagName === "BR") {
-      text += " ";
-      html += " ";
+      // A line break from the Word file is kept; the browser's own trailing <br> in an empty box is not.
+      if (el.nextSibling || el.previousSibling) {
+        text += "\n";
+        html += "<br>";
+      }
       return;
     }
+    if (el.classList.contains("dx-tab")) {
+      text += "\t";
+      html += '<span class="dx-tab">\t</span>';
+      return;
+    }
+    if (el.hasAttribute("data-marker")) return;
+    const fn = el.getAttribute("data-fn");
+    if (fn) html += `<span data-fn="${fn.replace(/[^\w-]/g, "")}" contenteditable="false">`;
     const keep = FORMAT_TAGS.has(el.tagName);
     // Colour, highlight, font and size live in a style attribute. formatting.ts cleans it before it is saved.
     const style = el.tagName === "SPAN" ? el.getAttribute("style") : null;
@@ -188,12 +199,13 @@ export function readEditable(root: HTMLElement): { text: string; html: string } 
     el.childNodes.forEach(walk);
     if (style) html += "</span>";
     if (keep) html += `</${el.tagName.toLowerCase()}>`;
+    if (fn) html += "</span>";
   };
   root.childNodes.forEach(walk);
   return { text, html };
 }
 
-export const hasFormatting = (html: string) => /<(b|strong|i|em|u|s|strike|sup|sub)>|<span style=/i.test(html);
+export const hasFormatting = (html: string) => /<(b|strong|i|em|u|s|strike|sup|sub)>|<span style=|<br>|class="dx-tab"/i.test(html);
 
 /** The HTML a paragraph is edited as: its sentences in order, equations drawn and protected. */
 export function buildEditableHtml(sentences: DocumentSentence[], equationHtml: (id: string) => string): string {
@@ -233,7 +245,9 @@ export function reconcile(
   nodeId: string,
   paragraphIndex: number,
   newId: () => string,
-  singleHtml?: string
+  singleHtml?: string,
+  /** Formatting of each new sentence, in the same order as `texts`. Takes priority over `singleHtml`. */
+  htmls?: (string | undefined)[]
 ): Reconciled {
   const a = old.map((s) => norm(s.text));
   const b = texts.map(norm);
@@ -266,6 +280,7 @@ export function reconcile(
     newGap.forEach((t, k) => {
       const prev = oldGap[k];
       const text = norm(t);
+      const html = htmls ? htmls[nj + k] : newGap.length === 1 && singleHtml ? singleHtml : undefined;
       if (prev) {
         // Reworded: same sentence, new words.
         out.push({
@@ -273,7 +288,7 @@ export function reconcile(
           nodeId,
           paragraphIndex,
           text,
-          formattedHtml: newGap.length === 1 && singleHtml ? singleHtml : undefined,
+          formattedHtml: html,
           score: undefined,
           edited: true,
           originalText: prev.originalText ?? prev.text,
@@ -286,7 +301,7 @@ export function reconcile(
           nodeId,
           paragraphIndex,
           text,
-          formattedHtml: newGap.length === 1 && singleHtml ? singleHtml : undefined,
+          formattedHtml: html,
           charStart: 0,
           charEnd: text.length,
           locked: false,
@@ -303,7 +318,10 @@ export function reconcile(
 
   for (const [i, j] of pairs) {
     flushGap(i, j);
-    out.push({ ...old[i], nodeId, paragraphIndex });
+    // Same words: keep the sentence, but take its formatting from what the page now shows.
+    const html = htmls ? htmls[j] : old[i].formattedHtml;
+    if (htmls && html !== old[i].formattedHtml) dirty = true;
+    out.push({ ...old[i], nodeId, paragraphIndex, formattedHtml: html });
     oi = i + 1;
     nj = j + 1;
   }

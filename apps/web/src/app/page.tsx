@@ -82,6 +82,11 @@ export default function LandingPage() {
 
   useEffect(() => {
     setDialect(guessDialect());
+    // A Google sign-in that did not finish comes back here; show the sign-in box with the reason.
+    if (new URLSearchParams(window.location.search).get("auth_error")) {
+      setAuthMode("login");
+      setAuthOpen(true);
+    }
     const cached = apiClient.getCurrentUser();
     if (cached) setUser(cached);
     else if (apiClient.getToken()) apiClient.getMe().then((r) => r?.user && setUser(r.user)).catch(() => {});
@@ -197,8 +202,9 @@ export default function LandingPage() {
               {resolvedTheme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
             {user ? (
-              <Link href="/documents" className="rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-sm font-semibold px-4 py-2">
-                Open your documents
+              <Link href="/documents" className="whitespace-nowrap rounded-xl bg-elite-600 hover:bg-elite-700 text-white text-sm font-semibold px-3 sm:px-4 py-2">
+                <span className="sm:hidden">Documents</span>
+                <span className="hidden sm:inline">Open your documents</span>
               </Link>
             ) : (
               <>
@@ -228,11 +234,11 @@ export default function LandingPage() {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <button
                 onClick={() => (user ? router.push("/documents") : openAuth("register"))}
-                className="inline-flex items-center gap-2 rounded-xl bg-elite-600 hover:bg-elite-700 text-white font-semibold px-6 py-3.5 shadow-sm"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-elite-600 hover:bg-elite-700 text-white font-semibold px-6 py-3.5 shadow-sm"
               >
                 {user ? "Open your documents" : "Start free"} <ArrowRight className="w-4 h-4" />
               </button>
-              <a href="#try" className="rounded-xl border border-slate-300 dark:border-slate-600 font-semibold px-6 py-3.5 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+              <a href="#try" className="w-full sm:w-auto text-center rounded-xl border border-slate-300 dark:border-slate-600 font-semibold px-6 py-3.5 hover:bg-slate-200/60 dark:hover:bg-slate-800">
                 Try it on a paragraph
               </a>
             </div>

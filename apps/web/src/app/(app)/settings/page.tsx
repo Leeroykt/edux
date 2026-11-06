@@ -126,13 +126,13 @@ function SettingsInner() {
       <p className="text-sm text-slate-500 mb-6">Your account, how you write, and your plan. Changes save as you make them unless a button says otherwise.</p>
 
       <div className="flex flex-col md:flex-row gap-6 md:gap-10">
-        <nav aria-label="Settings sections" className="md:w-52 shrink-0 flex md:flex-col gap-1 overflow-x-auto">
+        <nav aria-label="Settings sections" className="md:w-52 shrink-0 grid grid-cols-3 md:flex md:flex-col gap-1">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => go(t.id)}
               aria-current={tab === t.id ? "page" : undefined}
-              className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-medium whitespace-nowrap text-left ${
+              className={`flex flex-col md:flex-row items-center gap-1 md:gap-2.5 rounded-xl px-2 md:px-3.5 py-2 md:py-2.5 text-xs md:text-sm font-medium text-center md:text-left leading-tight ${
                 tab === t.id ? "bg-elite-600 text-white" : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800"
               }`}
             >

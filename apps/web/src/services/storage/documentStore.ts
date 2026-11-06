@@ -13,6 +13,60 @@ export interface StoredDocument {
 
 // Global in-memory singleton cache (preserves large documents across SPA transitions)
 let inMemoryActiveDoc: StoredDocument | null = null;
+const byId = new Map<string, StoredDocument>();
+const sources = new Map<string, ArrayBuffer>();
+
+async function idbGet<T>(key: string): Promise<T | null> {
+  const db = await openIndexedDB();
+  if (!db) return null;
+  return new Promise<T | null>((resolve) => {
+    try {
+      const req = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(key);
+      req.onsuccess = () => resolve((req.result as T) ?? null);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function idbPut(key: string, value: unknown): Promise<void> {
+  const db = await openIndexedDB();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+/** A document saved on this device, by id. */
+export async function getStoredDocument(id: string): Promise<StoredDocument | null> {
+  const hit = byId.get(id) ?? (inMemoryActiveDoc?.meta.id === id ? inMemoryActiveDoc : null);
+  if (hit) return hit;
+  const doc = await idbGet<StoredDocument>(`doc:${id}`);
+  if (doc) byId.set(id, doc);
+  return doc;
+}
+
+/** Keeps the Word file a document was uploaded from, so an export can change only what was edited. */
+export async function saveSourceFile(id: string, file: ArrayBuffer): Promise<void> {
+  sources.set(id, file);
+  await idbPut(`source:${id}`, file);
+}
+
+export async function getSourceFile(id: string): Promise<ArrayBuffer | null> {
+  const hit = sources.get(id);
+  if (hit) return hit;
+  const file = await idbGet<ArrayBuffer>(`source:${id}`);
+  if (file) sources.set(id, file);
+  return file;
+}
 
 const DB_NAME = "edux_storage_db";
 const STORE_NAME = "active_manuscript";
@@ -60,6 +114,7 @@ export async function setActiveDocument(
 
   // 1. Immediately store in fast memory cache
   inMemoryActiveDoc = docPayload;
+  byId.set(meta.id, docPayload);
 
   // 2. Persist to IndexedDB (asynchronously, supports 100MB+ dissertations)
   try {
@@ -70,6 +125,8 @@ export async function setActiveDocument(
           const tx = db.transaction(STORE_NAME, "readwrite");
           const store = tx.objectStore(STORE_NAME);
           store.put(docPayload, ACTIVE_KEY);
+          // Every document is also kept under its own id, so switching documents never loses its formatting.
+          store.put(docPayload, `doc:${meta.id}`);
           tx.oncomplete = () => resolve();
           tx.onerror = () => resolve();
         } catch {

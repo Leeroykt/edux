@@ -243,27 +243,31 @@ const ShellFrame: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top bar */}
-        <header className="h-14 shrink-0 flex items-center gap-3 px-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur">
-          <div className="md:hidden">
-            <Link href={user ? "/documents" : "/"} aria-label="eduX home">
+        {/* Three columns: title, search in the exact centre, actions at the far right. */}
+        <header className="h-14 shrink-0 grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_minmax(0,28rem)_minmax(0,1fr)] items-center gap-2 sm:gap-3 px-3 sm:px-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur">
+          <div className="flex items-center gap-2 min-w-0">
+            <Link href={user ? "/documents" : "/"} aria-label="eduX home" className="md:hidden shrink-0">
               <Logo size="sm" iconOnly showTagline={false} />
             </Link>
+            <h1 className="font-serif text-lg font-semibold tracking-tight text-slate-900 dark:text-white hidden md:block truncate">
+              {title}
+            </h1>
           </div>
-          <h1 className="font-serif text-lg font-semibold tracking-tight text-slate-900 dark:text-white hidden sm:block">
-            {title}
-          </h1>
 
           <button
             onClick={() => setPaletteOpen(true)}
-            className="ml-auto md:ml-4 flex-1 max-w-md flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/70 px-3 py-1.5 text-xs text-slate-500 hover:border-elite-400 transition-colors"
+            className="w-full min-w-0 flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/70 px-3 py-1.5 text-xs text-slate-500 hover:border-elite-400 transition-colors"
             aria-label="Search or run a command"
           >
-            <Search className="w-3.5 h-3.5" />
-            <span className="flex-1 text-left truncate">Search or run a command…</span>
-            <kbd className="hidden sm:inline rounded border border-slate-300 dark:border-slate-600 px-1.5 py-0.5 text-[10px] font-mono text-slate-500">Ctrl K</kbd>
+            <Search className="w-3.5 h-3.5 shrink-0" />
+            <span className="flex-1 text-left truncate">
+              <span className="sm:hidden">Search…</span>
+              <span className="hidden sm:inline">Search or run a command…</span>
+            </span>
+            <kbd className="hidden lg:inline rounded border border-slate-300 dark:border-slate-600 px-1.5 py-0.5 text-[10px] font-mono text-slate-500">Ctrl K</kbd>
           </button>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="justify-self-end flex items-center gap-1 sm:gap-2 min-w-0">
             {usagePct !== null && (
               <div className="hidden lg:flex flex-col gap-1 w-28" title={`${usage!.wordsScoredToday.toLocaleString()} of ${usage!.dailyWordCap.toLocaleString()} words scored today`}>
                 <div className="flex justify-between text-[10px] font-medium text-slate-500">

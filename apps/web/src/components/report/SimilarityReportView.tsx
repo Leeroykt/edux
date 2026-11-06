@@ -89,18 +89,18 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
         {/* Clean, Simple Metric Cards (Harsh borders completely removed) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* Box 1: Plagiarism & Similarity Index */}
-          <div className="p-6 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200/60 dark:border-slate-800/60 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
+          <div className="p-4 sm:p-6 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200/60 dark:border-slate-800/60 shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-elite-600" />
                 1. Plagiarism & Similarity Index
               </span>
-              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-elite-50 dark:bg-elite-950/60 text-elite-600 dark:text-elite-400">
+              <span className="whitespace-nowrap shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-elite-50 dark:bg-elite-950/60 text-elite-600 dark:text-elite-400">
                 Illustrative
               </span>
             </div>
 
-            <div className="flex items-baseline gap-4">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
               <div className="text-5xl font-black text-slate-900 dark:text-white">
                 {adjustedScore}%
               </div>
@@ -115,18 +115,18 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
           </div>
 
           {/* Box 2: AI Detection Likelihood */}
-          <div className="p-6 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200/60 dark:border-slate-800/60 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
+          <div className="p-4 sm:p-6 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200/60 dark:border-slate-800/60 shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                 <Cpu className="w-4 h-4 text-amber-500" />
                 2. AI Detection Likelihood
               </span>
-              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+              <span className="whitespace-nowrap shrink-0 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
                 Stylometric Estimate
               </span>
             </div>
 
-            <div className="flex items-baseline gap-4">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
               <div className="text-5xl font-black text-slate-900 dark:text-white">
                 38%
               </div>
@@ -242,8 +242,8 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
           </div>
 
           {/* Side by side preview */}
-          <div className="lg:col-span-7 bg-white dark:bg-slate-900/90 p-6 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div className="lg:col-span-7 bg-white dark:bg-slate-900/90 p-4 sm:p-6 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-elite-600" />
                 Side-by-Side Match Inspection
@@ -251,7 +251,7 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
               {currentMatch && (
                 <button
                   onClick={() => onJumpToEditorSentence(currentMatch.sentenceId)}
-                  className="px-3 py-1.5 rounded-xl bg-elite-50 dark:bg-elite-950 text-elite-600 dark:text-elite-400 hover:bg-elite-100 dark:hover:bg-elite-900 text-xs font-bold flex items-center gap-1 transition-colors"
+                  className="whitespace-nowrap shrink-0 px-3 py-1.5 rounded-xl bg-elite-50 dark:bg-elite-950 text-elite-600 dark:text-elite-400 hover:bg-elite-100 dark:hover:bg-elite-900 text-xs font-bold flex items-center gap-1 transition-colors"
                 >
                   <span>Open in Editor</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -273,7 +273,7 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
                       Matched Source Publication Snippet:
                     </span>
@@ -282,7 +282,7 @@ export const SimilarityReportView: React.FC<SimilarityReportViewProps> = ({
                         href={currentSource.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-xs text-elite-600 dark:text-elite-400 hover:underline flex items-center gap-1 font-semibold"
+                        className="whitespace-nowrap text-xs text-elite-600 dark:text-elite-400 hover:underline flex items-center gap-1 font-semibold"
                       >
                         Source Link <ExternalLink className="w-3 h-3" />
                       </a>

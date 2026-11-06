@@ -3,6 +3,7 @@ import { X, Download, CheckCircle2, ListChecks, FileCheck, FileCode, Check, Aler
 import { DocumentParagraphNode } from "@edux/schema";
 import { downloadDocxFile, summariseExport } from "../../services/docx/docxExport";
 import { EquationMap } from "../../lib/equations";
+import { getSourceFile } from "../../services/storage/documentStore";
 
 interface FidelityReportModalProps {
   isOpen: boolean;
@@ -10,6 +11,8 @@ interface FidelityReportModalProps {
   documentTitle: string;
   paragraphs?: DocumentParagraphNode[];
   equations?: EquationMap;
+  /** Used to find the original Word file, when the document was uploaded from one. */
+  documentId?: string;
   onExported?: () => void;
 }
 
@@ -19,9 +22,20 @@ export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
   documentTitle,
   paragraphs = [],
   equations = {},
+  documentId,
   onExported,
 }) => {
   const [exportMode, setExportMode] = useState<"clean" | "tracked">("clean");
+  const [source, setSource] = useState<ArrayBuffer | null>(null);
+  useEffect(() => {
+    if (!isOpen || !documentId) return;
+    let live = true;
+    getSourceFile(documentId).then((s) => live && setSource(s));
+    return () => {
+      live = false;
+    };
+  }, [isOpen, documentId]);
+  const fromWord = !!source && paragraphs.some((p) => p.docx);
   const [isExporting, setIsExporting] = useState(false);
   const [exportComplete, setExportComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +58,7 @@ export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
     setIsExporting(true);
     setError(null);
     try {
-      await downloadDocxFile(documentTitle, paragraphs, { exportMode, equations });
+      await downloadDocxFile(documentTitle, paragraphs, { exportMode, equations, source: fromWord ? source : null });
       onExported?.();
       setIsExporting(false);
       setExportComplete(true);
@@ -167,7 +181,9 @@ export const FidelityReportModal: React.FC<FidelityReportModalProps> = ({
               </div>
             )}
             <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200/60 dark:border-slate-800">
-              The file is rebuilt from the text, headings, lists, tables, images and basic formatting shown in the editor. Word equations are kept as real Word equations. Headers, footers and footnotes are not carried over yet, so check the file before you submit it.
+              {fromWord
+                ? "This is your original Word file with only your changes written in. Everything you did not edit (layout, styles, fonts, headers, footers, footnotes, pictures and equations) is kept exactly as it was."
+                : "The file is rebuilt from the text, headings, lists, tables, images and basic formatting shown in the editor. Word equations are kept as real Word equations. Headers, footers and footnotes are not carried over, so check the file before you submit it."}
             </p>
           </div>
 

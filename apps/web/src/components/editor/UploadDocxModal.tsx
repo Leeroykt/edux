@@ -14,11 +14,10 @@ import {
   RefreshCw,
   FileCheck
 } from "lucide-react";
-import mammoth from "mammoth";
-import { DocumentMeta, DocumentParagraphNode, DocumentSentence, ScoreBand } from "@edux/schema";
+import { DocumentMeta, DocumentParagraphNode, DocumentSentence } from "@edux/schema";
 import { apiClient } from "../../services/api/apiClient";
-import { setActiveDocument } from "../../services/storage/documentStore";
-import { extractEquations } from "../../services/docx/equations";
+import { saveSourceFile, setActiveDocument } from "../../services/storage/documentStore";
+import { importDocx } from "../../services/docx/docxImport";
 import { splitSentenceTexts } from "../../lib/sentences";
 import { EquationMap } from "../../lib/equations";
 
@@ -61,40 +60,43 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
       let rawHtml = "";
       let equationMap: EquationMap = {};
 
-      if (file.name.endsWith(".docx")) {
+      if (/\.docx$/i.test(file.name)) {
+        // Word files are read straight from their XML, so every page looks exactly as it does in Word.
         const original = await file.arrayBuffer();
-        // Word equations are set aside first, because the text converter would drop them.
-        const extracted = await extractEquations(original).catch(() => ({ buffer: original, equations: {} as EquationMap }));
-        equationMap = extracted.equations;
-        const arrayBuffer = extracted.buffer;
-        setStep(2); // Parsing OOXML with mammoth
-        const mammothOptions = {
-          ignoreEmptyParagraphs: false,
-          convertImage: (mammoth as any).images?.imgElement((image: any) => {
-            return image.read("base64").then((imageBuffer: string) => {
-              return {
-                src: `data:${image.contentType};base64,${imageBuffer}`,
-              };
-            });
-          }),
-          transformDocument: (element: any) => {
-            function tagNode(node: any) {
-              if (node.type === "paragraph" && node.alignment && node.children) {
-                node.children.unshift({
-                  type: "text",
-                  value: `<!--align:${node.alignment}-->`,
-                });
-              }
-              if (node.children) {
-                node.children.forEach(tagNode);
-              }
-            }
-            tagNode(element);
-            return element;
-          },
+        setStep(2);
+        const docId = `doc_user_${Date.now()}`;
+        const imported = await importDocx(original, docId);
+        setStep(3);
+        if (imported.paragraphs.length === 0) throw new Error("This Word file has no text in it.");
+        const meta: DocumentMeta = {
+          id: docId,
+          ownerId: apiClient.getCurrentUser()?.id || "guest",
+          title: file.name,
+          status: "scanning",
+          stage: "uploaded",
+          currentVersionId: "v_01",
+          ownerDeclaredOwn: true,
+          wordCount: imported.wordCount,
+          pageCount: Math.max(1, Math.ceil(imported.wordCount / 320)),
+          overallAiScore: 0,
+          similarityScore: 0,
+          layout: imported.layout,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
-        const result = await mammoth.convertToHtml({ arrayBuffer }, mammothOptions);
-        rawHtml = result.value;
+        // The server must know the document before the editor starts following its scores.
+        await Promise.all([
+          saveSourceFile(docId, original),
+          setActiveDocument(meta, imported.paragraphs, imported.equations),
+          apiClient
+            .createDocument({ id: docId, title: file.name, paragraphs: imported.paragraphs })
+            .catch((err) => console.warn("Failed to persist uploaded document:", err)),
+        ]);
+        setIsProcessing(false);
+        onDocumentLoaded?.(meta, imported.paragraphs, imported.equations);
+        onClose();
+        router.push("/edit");
+        return;
       } else {
         // Plain text or markdown
         setStep(2);
@@ -247,23 +249,10 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
             return;
           }
 
-          // Check if this paragraph represents a major section heading or title
-          const isSectionHeading = /^(abstract|declaration|approval|acknowledgements|table of contents|chapter\s+\d+|references|bibliography)\b/i.test(text);
-          // Auto-center cover page lines if near the start of the manuscript
-          const isTitlePageP = pIdx < 18 && (
-            text === "BY" ||
-            text.includes("MUFUKA") ||
-            text.includes("UNIVERSITY") ||
-            text.includes("SECMAS") ||
-            text.includes("Submitted in partial fulfilment") ||
-            text.includes("BSc Honours") ||
-            text.includes("Department of") ||
-            text.includes("Faculty of")
-          );
-
-          const finalAlignment = isTitlePageP || isSectionHeading
-            ? (alignment || "center")
-            : (alignment || (text.length > 100 ? "justify" : "left"));
+          // The file decides the layout: nothing is centred, justified or turned into a heading by guesswork.
+          const isSectionHeading = false;
+          const isTitlePageP = false;
+          const finalAlignment = alignment;
 
           // 5. Headings H1 - H6
           if (/^H[1-6]$/.test(tagName) || isSectionHeading) {
@@ -352,7 +341,6 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
           const t = textOf(node);
           if (CAPTION.test(t) && t.length < 300) {
             node.styleName = "Caption";
-            node.alignment = "center";
             node.sentences.forEach((x) => {
               x.ignored = true;
             });
@@ -557,7 +545,7 @@ export const UploadDocxModal: React.FC<UploadDocxModalProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${step >= 2 ? "bg-emerald-500" : "bg-slate-300"}`} />
-                  <span>Mammoth DOM synthesis</span>
+                  <span>Styles, pages and layout</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${step >= 3 ? "bg-emerald-500" : "bg-slate-300"}`} />
